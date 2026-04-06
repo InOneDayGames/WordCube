@@ -1,0 +1,391 @@
+:root {
+  --stage-size: 600px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  color: #162029;
+  background:
+    radial-gradient(circle at top, rgba(194, 205, 214, 0.35), transparent 28%),
+    linear-gradient(180deg, #ebe6dd 0%, #e3ddd0 100%);
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+.app-shell {
+  width: min(1240px, 100%);
+  margin: 0 auto;
+  padding: 18px;
+}
+
+.panel {
+  background: rgba(255, 251, 245, 0.86);
+  border: 1px solid rgba(70, 79, 89, 0.16);
+  box-shadow: 0 18px 36px rgba(46, 52, 58, 0.08);
+}
+
+.header-panel {
+  padding: 20px 22px;
+  margin-bottom: 18px;
+}
+
+.header-topline {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.title-line {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.byline {
+  font-size: 0.82rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #7b858e;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.74rem;
+  color: #7a6442;
+}
+
+.build-version {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  color: #51606d;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+h1,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(1.9rem, 4vw, 3.2rem);
+  line-height: 1;
+}
+
+.lede {
+  margin-top: 12px;
+  max-width: 58rem;
+  color: #51606d;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) 320px;
+  gap: 18px;
+  align-items: start;
+}
+
+.stage-panel {
+  padding: 8px 14px 14px;
+  display: grid;
+  gap: 10px;
+  position: relative;
+}
+
+.stage {
+  width: min(100%, var(--stage-size));
+  height: var(--stage-size);
+  justify-self: center;
+}
+
+.stage-controls {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+}
+
+.stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.game-over-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(18, 26, 34, 0.36);
+}
+
+.game-over-card {
+  width: min(100%, 320px);
+  padding: 22px 20px;
+  background: rgba(255, 251, 245, 0.96);
+  border: 1px solid rgba(70, 79, 89, 0.18);
+  box-shadow: 0 18px 36px rgba(24, 31, 38, 0.18);
+  text-align: center;
+}
+
+.game-over-title {
+  font-size: 1.9rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.game-over-reason {
+  margin-top: 10px;
+  font-size: 0.82rem;
+  letter-spacing: 0.14em;
+  color: #7a6442;
+}
+
+.game-over-stat {
+  margin-top: 16px;
+  display: grid;
+  gap: 4px;
+}
+
+.game-over-stat span {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #7b858e;
+}
+
+.game-over-stat strong {
+  font-size: 1.3rem;
+  color: #162029;
+}
+
+.game-over-action {
+  width: 100%;
+  margin-top: 18px;
+}
+
+.sidebar {
+  padding: 16px;
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+.sidebar-block {
+  display: grid;
+  gap: 10px;
+}
+
+.label {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.72rem;
+  color: #7a6442;
+}
+
+.word-readout {
+  width: 222px;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid rgba(70, 79, 89, 0.16);
+  background: rgba(241, 237, 229, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.45rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1;
+}
+
+.controls-row {
+  display: grid;
+  grid-template-columns: minmax(0, 168px) 44px;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  width: 222px;
+}
+
+.action {
+  height: 44px;
+  border: 1px solid #374a57;
+  background: #374a57;
+  color: #f8fafb;
+  padding: 0 12px;
+}
+
+.action.is-secondary {
+  background: transparent;
+  color: #24313b;
+}
+
+.action.is-clear {
+  padding: 0;
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.rapid-action {
+  width: 100%;
+}
+
+.score-card {
+  padding: 14px 16px;
+  border: 1px solid rgba(70, 79, 89, 0.16);
+  background: rgba(241, 237, 229, 0.9);
+}
+
+.score-label,
+.history-label {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.72rem;
+  color: #7a6442;
+}
+
+.score-value {
+  margin-top: 8px;
+  font-size: 2.8rem;
+  line-height: 1;
+  font-weight: 700;
+  color: #162029;
+}
+
+.score-event {
+  margin-top: 12px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(70, 79, 89, 0.12);
+}
+
+.score-event-label {
+  font-size: 0.95rem;
+  color: #162029;
+}
+
+.score-event-points {
+  font-size: 0.8rem;
+  color: #7b858e;
+}
+
+.history-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.history-list {
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid rgba(70, 79, 89, 0.16);
+  background: rgba(255, 251, 245, 0.74);
+}
+
+.history-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-top: 1px solid rgba(70, 79, 89, 0.1);
+}
+
+.history-item:first-child {
+  border-top: 0;
+}
+
+.history-word {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: #162029;
+}
+
+.history-points {
+  font-size: 0.8rem;
+  color: #7b858e;
+}
+
+.history-empty {
+  padding: 12px;
+  color: #7b858e;
+  font-size: 0.95rem;
+}
+
+.status {
+  min-height: 3em;
+  color: #2b3a45;
+  font-size: 0.95rem;
+}
+
+@media (max-width: 980px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-shell {
+    padding: 12px;
+  }
+
+  .header-topline {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .title-line {
+    gap: 8px;
+  }
+
+  .controls-row {
+    grid-template-columns: 1fr 56px;
+    width: 100%;
+  }
+
+  .word-readout {
+    font-size: 1.35rem;
+    width: min(100%, 222px);
+  }
+
+  .controls-row {
+    width: min(100%, 222px);
+  }
+
+}

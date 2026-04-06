@@ -1,0 +1,25 @@
+{
+  "name": "word-cube",
+  "private": true,
+  "version": "0.2.28",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "android:sync": "npm run build && npx cap sync android",
+    "simulate:letterbag": "tsc -p tsconfig.sim.json && node scripts/simulate-letterbag.mjs",
+    "tune:letterbag": "tsc -p tsconfig.sim.json && node scripts/optimize-letterbag.mjs"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.1.0",
+    "@types/three": "^0.183.1",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.1"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.1.0",
+    "@capacitor/core": "^8.1.0",
+    "three": "^0.183.1"
+  }
+}
