@@ -9,6 +9,8 @@ const CUBE_VERTICAL_OFFSET = 0.0
 const DRAG_DEADZONE_PX = 10
 const DRAG_RADIANS_PER_PIXEL = 0.006
 const MAX_PITCH_RADIANS = Math.PI / 4
+const DEFAULT_CAMERA_RADIUS = 12
+const COMPACT_CAMERA_RADIUS = 10
 
 export class CubeView {
   private readonly container: HTMLElement
@@ -24,7 +26,6 @@ export class CubeView {
   private faceMeshes: THREE.Mesh[] = []
   private yawRadians = 0
   private pitchRadians = 0
-  private readonly cameraRadius = 12
   private dragYawOffset = 0
   private dragPitchOffset = 0
   private pointerStartX: number | null = null
@@ -41,13 +42,14 @@ export class CubeView {
     this.onFaceSelect = onFaceSelect
     this.onYawChange = onYawChange
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+    this.renderer.domElement.style.touchAction = 'none'
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
 
     this.scene = new THREE.Scene()
     this.camera = new THREE.PerspectiveCamera(36, 1, 0.1, 100)
     this.camera.up.set(0, 1, 0)
-    this.camera.position.set(0, 0, this.cameraRadius)
+    this.camera.position.set(0, 0, DEFAULT_CAMERA_RADIUS)
     this.camera.lookAt(0, 0, 0)
 
     this.cubeRoot = new THREE.Group()
@@ -104,8 +106,12 @@ export class CubeView {
   private resize() {
     const width = this.container.clientWidth || 640
     const height = this.container.clientHeight || 640
+    const compactViewport = width <= 420 || window.innerWidth <= 640
+
+    this.camera.position.set(0, 0, compactViewport ? COMPACT_CAMERA_RADIUS : DEFAULT_CAMERA_RADIUS)
     this.camera.aspect = width / height
     this.camera.updateProjectionMatrix()
+    this.camera.lookAt(0, 0, 0)
     this.renderer.setSize(width, height, false)
   }
 
@@ -213,6 +219,10 @@ export class CubeView {
       return
     }
 
+    if (event.cancelable) {
+      event.preventDefault()
+    }
+
     this.pointerStartX = event.clientX
     this.pointerStartY = event.clientY
     this.activePointerId = event.pointerId
@@ -242,6 +252,10 @@ export class CubeView {
       return
     }
 
+    if (event.cancelable) {
+      event.preventDefault()
+    }
+
     this.dragYawOffset = deltaX * DRAG_RADIANS_PER_PIXEL
     this.dragPitchOffset = deltaY * DRAG_RADIANS_PER_PIXEL
     this.applyYawRotation()
@@ -251,6 +265,10 @@ export class CubeView {
   private handlePointerUp = (event: PointerEvent) => {
     if (this.activePointerId !== event.pointerId) {
       return
+    }
+
+    if (event.cancelable) {
+      event.preventDefault()
     }
 
     if (this.dragActive) {
@@ -283,6 +301,10 @@ export class CubeView {
   private handlePointerCancel = (event: PointerEvent) => {
     if (this.activePointerId !== event.pointerId) {
       return
+    }
+
+    if (event.cancelable) {
+      event.preventDefault()
     }
 
     this.pointerStartX = null

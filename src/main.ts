@@ -30,6 +30,7 @@ type AppState = {
   gameOverReason: 'cleared' | 'no_more_words' | null
   hintedWords: Set<string>
   hintUsedThisRun: boolean
+  historySheetOpen: boolean
 }
 
 const CUBE_CLEAR_BONUS = 3
@@ -58,6 +59,7 @@ const state: AppState = {
   gameOverReason: null,
   hintedWords: new Set(),
   hintUsedThisRun: false,
+  historySheetOpen: false,
 }
 
 let cubeView: CubeView | null = null
@@ -93,13 +95,20 @@ function renderShell() {
             <h1>WORD CUBE</h1>
             <span class="byline">by TOM HEATON</span>
           </div>
-          <p class="build-version">Build ${APP_VERSION}</p>
+          <p class="build-version" aria-label="Build ${APP_VERSION}">Build ${APP_VERSION}</p>
         </div>
       </section>
 
       <section class="workspace">
         <section class="panel stage-panel">
-          <div class="stage" data-stage></div>
+          <div class="stage-stack">
+            <div class="mobile-score-pill" aria-label="Score ${state.score}">
+              <span class="mobile-score-label">Score</span>
+              <strong class="mobile-score-value">${state.score}</strong>
+            </div>
+            <div class="stage" data-stage></div>
+            ${renderGameOverOverlay()}
+          </div>
           <div class="stage-controls">
             <div class="word-readout">${currentWord() || '&nbsp;'}</div>
 
@@ -118,7 +127,7 @@ function renderShell() {
               </button>
             </div>
           </div>
-          ${renderGameOverOverlay()}
+          <section class="mobile-history-preview" aria-label="Recent found words">${renderMobileHistoryPreview()}</section>
         </section>
 
         <aside class="panel sidebar">
@@ -142,18 +151,18 @@ function renderShell() {
           <button class="action rapid-action" data-action="rapid-solve" ${state.loading || state.gameOverReason ? 'disabled' : ''}>
             Rapid solve
           </button>
-
-          <p class="status">${state.status}</p>
         </aside>
       </section>
+      ${renderHistorySheet()}
     </main>
   `
 
+  document.body.classList.toggle('history-sheet-open', state.historySheetOpen)
   bindUi()
 }
 
 function bindUi() {
-  appRoot.querySelector<HTMLButtonElement>('[data-action="clear"]')?.addEventListener('click', () => {
+  bindButtons('[data-action="clear"]', () => {
     if (state.gameOverReason) {
       return
     }
@@ -164,28 +173,54 @@ function bindUi() {
     renderCube()
   })
 
-  appRoot.querySelector<HTMLButtonElement>('[data-action="submit"]')?.addEventListener('click', () => {
+  bindButtons('[data-action="submit"]', () => {
     submitSelection()
   })
 
-  appRoot.querySelector<HTMLButtonElement>('[data-action="rapid-solve"]')?.addEventListener('click', () => {
+  bindButtons('[data-action="rapid-solve"]', () => {
     rapidSolve()
   })
 
-  appRoot.querySelector<HTMLButtonElement>('[data-action="hint"]')?.addEventListener('click', () => {
+  bindButtons('[data-action="hint"]', () => {
     applyHint()
   })
 
-  appRoot.querySelector<HTMLButtonElement>('[data-action="replay"]')?.addEventListener('click', () => {
+  bindButtons('[data-action="replay"]', () => {
     replayGame()
   })
 
+  bindButtons('[data-action="open-history"]', () => {
+    state.historySheetOpen = true
+    renderShell()
+    renderCube()
+  })
+
+  bindButtons('[data-action="close-history"]', () => {
+    state.historySheetOpen = false
+    renderShell()
+    renderCube()
+  })
+
   window.onkeydown = (event: KeyboardEvent) => {
+    if (event.key === 'Escape' && state.historySheetOpen) {
+      event.preventDefault()
+      state.historySheetOpen = false
+      renderShell()
+      renderCube()
+      return
+    }
+
     if (event.key === 'Enter') {
       event.preventDefault()
       submitSelection()
     }
   }
+}
+
+function bindButtons(selector: string, onClick: () => void) {
+  appRoot.querySelectorAll<HTMLButtonElement>(selector).forEach((button) => {
+    button.addEventListener('click', onClick)
+  })
 }
 
 function renderCube() {
@@ -310,6 +345,83 @@ function renderFoundWords(): string {
       `,
     )
     .join('')
+}
+
+function renderMobileHistoryPreview(): string {
+  const recentWords = state.foundWords.slice(0, 2)
+  const remainingWordCount = Math.max(0, state.foundWords.length - recentWords.length)
+  const hasWords = state.foundWords.length > 0
+
+  return `
+    <div class="mobile-history-header">
+      <p class="mobile-history-title">Found words</p>
+      <button
+        class="action-link"
+        data-action="open-history"
+        aria-haspopup="dialog"
+        aria-expanded="${state.historySheetOpen}"
+        ${hasWords ? '' : 'disabled'}
+      >
+        View all
+      </button>
+    </div>
+    <div class="mobile-history-cards">
+      ${
+        hasWords
+          ? `
+              ${recentWords
+                .map(
+                  ({ word, points }) => `
+                    <div class="mobile-history-card">
+                      <span class="mobile-history-word">${word}</span>
+                      <span class="mobile-history-points">${points === null ? 'HINT' : `+${points}`}</span>
+                    </div>
+                  `,
+                )
+                .join('')}
+              ${
+                remainingWordCount > 0
+                  ? `<div class="mobile-history-chip">+${remainingWordCount} more</div>`
+                  : ''
+              }
+            `
+          : ''
+      }
+    </div>
+  `
+}
+
+function renderHistorySheet(): string {
+  if (!state.historySheetOpen) {
+    return ''
+  }
+
+  return `
+    <div class="history-sheet" role="dialog" aria-modal="true" aria-labelledby="history-sheet-title">
+      <button class="history-sheet-backdrop" data-action="close-history" aria-label="Close found words"></button>
+      <section class="history-sheet-panel">
+        <div class="history-sheet-handle" aria-hidden="true"></div>
+        <div class="history-sheet-header">
+          <div>
+            <p class="history-label">Found Words</p>
+            <p class="history-sheet-title" id="history-sheet-title">
+              ${state.foundWords.length} word${state.foundWords.length === 1 ? '' : 's'} found
+            </p>
+          </div>
+          <button
+            class="action is-secondary history-sheet-close"
+            data-action="close-history"
+            aria-label="Close found words"
+          >
+            Close
+          </button>
+        </div>
+        <div class="history-sheet-list">
+          ${renderFoundWords()}
+        </div>
+      </section>
+    </div>
+  `
 }
 
 function renderScoreEvents(): string {
@@ -508,6 +620,7 @@ function replayGame() {
   state.gameOverReason = null
   state.hintedWords = new Set()
   state.hintUsedThisRun = false
+  state.historySheetOpen = false
   state.status = 'Select adjacent visible faces that share an edge.'
   renderShell()
   renderCube()

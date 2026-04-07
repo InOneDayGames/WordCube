@@ -20,6 +20,10 @@ body {
   min-height: 100vh;
 }
 
+body.history-sheet-open {
+  overflow: hidden;
+}
+
 button,
 input,
 textarea,
@@ -113,21 +117,36 @@ h1 {
 }
 
 .stage-panel {
-  padding: 8px 14px 14px;
+  padding: 12px 14px 14px;
   display: grid;
-  gap: 10px;
+  gap: 12px;
   position: relative;
 }
 
-.stage {
+.stage-stack {
+  position: relative;
   width: min(100%, var(--stage-size));
-  height: var(--stage-size);
   justify-self: center;
+}
+
+.mobile-score-pill {
+  display: none;
+}
+
+.stage {
+  width: 100%;
+  height: var(--stage-size);
+  border: 1px solid rgba(70, 79, 89, 0.16);
+  background:
+    radial-gradient(circle at top, rgba(215, 228, 239, 0.48), transparent 52%),
+    linear-gradient(180deg, rgba(255, 251, 245, 0.94), rgba(244, 239, 226, 0.88));
+  overflow: hidden;
+  touch-action: none;
 }
 
 .stage-controls {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   justify-items: center;
 }
 
@@ -135,20 +154,29 @@ h1 {
   display: block;
   width: 100%;
   height: 100%;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.mobile-history-preview {
+  display: none;
 }
 
 .game-over-overlay {
   position: absolute;
   inset: 0;
   display: grid;
-  place-items: center;
+  align-items: center;
+  justify-items: center;
   padding: 24px;
   background: rgba(18, 26, 34, 0.36);
+  z-index: 3;
 }
 
 .game-over-card {
   width: min(100%, 320px);
-  padding: 22px 20px;
+  padding: 20px 18px;
   background: rgba(255, 251, 245, 0.96);
   border: 1px solid rgba(70, 79, 89, 0.18);
   box-shadow: 0 18px 36px rgba(24, 31, 38, 0.18);
@@ -162,33 +190,34 @@ h1 {
 }
 
 .game-over-reason {
-  margin-top: 10px;
+  margin-top: 8px;
   font-size: 0.82rem;
   letter-spacing: 0.14em;
   color: #7a6442;
 }
 
 .game-over-stat {
-  margin-top: 16px;
+  margin-top: 12px;
   display: grid;
-  gap: 4px;
+  gap: 1px;
 }
 
 .game-over-stat span {
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: #7b858e;
 }
 
 .game-over-stat strong {
-  font-size: 1.3rem;
+  font-size: 1.15rem;
   color: #162029;
+  line-height: 1;
 }
 
 .game-over-action {
   width: 100%;
-  margin-top: 18px;
+  margin-top: 14px;
 }
 
 .sidebar {
@@ -240,6 +269,10 @@ h1 {
   background: #374a57;
   color: #f8fafb;
   padding: 0 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .action.is-secondary {
@@ -254,6 +287,23 @@ h1 {
 }
 
 .action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.action-link {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #374a57;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.action-link:disabled {
   opacity: 0.45;
   cursor: default;
 }
@@ -347,31 +397,280 @@ h1 {
   font-size: 0.95rem;
 }
 
-.status {
-  min-height: 3em;
-  color: #2b3a45;
-  font-size: 0.95rem;
+.mobile-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mobile-history-title {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #7a6442;
+}
+
+.mobile-history-cards {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.mobile-history-cards::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-history-card {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0;
+  min-height: 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(70, 79, 89, 0.16);
+  background: rgba(255, 251, 245, 0.82);
+  white-space: nowrap;
+}
+
+.mobile-history-word {
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #162029;
+}
+
+.mobile-history-points {
+  font-size: 0.72rem;
+  color: #7b858e;
+}
+
+.mobile-history-chip {
+  flex: 0 0 auto;
+  padding: 8px 10px;
+  border: 1px solid rgba(70, 79, 89, 0.12);
+  background: rgba(228, 220, 201, 0.7);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #374a57;
+  white-space: nowrap;
+}
+
+.history-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  align-items: end;
+}
+
+.history-sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(18, 26, 34, 0.42);
+}
+
+.history-sheet-panel {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  max-height: min(74vh, 640px);
+  padding: 12px 14px 16px;
+  background: rgba(255, 251, 245, 0.98);
+  border-top: 1px solid rgba(70, 79, 89, 0.16);
+  box-shadow: 0 -18px 36px rgba(24, 31, 38, 0.18);
+}
+
+.history-sheet-handle {
+  width: 54px;
+  height: 4px;
+  justify-self: center;
+  border-radius: 999px;
+  background: rgba(70, 79, 89, 0.24);
+}
+
+.history-sheet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.history-sheet-title {
+  margin-top: 4px;
+  font-size: 1.08rem;
+  font-weight: 700;
+  color: #162029;
+}
+
+.history-sheet-close {
+  height: 40px;
+  min-width: 82px;
+}
+
+.history-sheet-list {
+  overflow-y: auto;
+  border: 1px solid rgba(70, 79, 89, 0.16);
+  background: rgba(255, 251, 245, 0.74);
+  overscroll-behavior: contain;
 }
 
 @media (max-width: 980px) {
+  :root {
+    --stage-size: min(calc(100vw - 32px), 60svh);
+  }
+
   .workspace {
     grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .mobile-score-pill {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    z-index: 2;
+    display: grid;
+    gap: 1px;
+    min-width: 72px;
+    padding: 8px 10px;
+    border: 1px solid rgba(70, 79, 89, 0.16);
+    background: rgba(255, 251, 245, 0.92);
+    text-align: right;
+    pointer-events: none;
+  }
+
+  .mobile-history-preview {
+    display: grid;
+    gap: 8px;
+    width: 100%;
+    padding: 9px 11px;
+    border: 1px solid rgba(70, 79, 89, 0.16);
+    background: rgba(255, 251, 245, 0.86);
+  }
+
+  .mobile-score-label {
+    font-size: 0.62rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #7a6442;
+  }
+
+  .mobile-score-value {
+    font-size: 1.1rem;
+    line-height: 1;
+    color: #162029;
+  }
+
+  .sidebar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 10px;
+    gap: 10px;
+  }
+
+  .score-card {
+    display: none;
+  }
+
+  .history-panel {
+    display: none;
   }
 }
 
 @media (max-width: 640px) {
+  :root {
+    --stage-size: min(calc(100vw - 20px), 58svh);
+  }
+
   .app-shell {
-    padding: 12px;
+    padding: 8px;
   }
 
   .header-topline {
-    flex-direction: column;
     align-items: flex-start;
-    gap: 4px;
+    gap: 10px;
   }
 
   .title-line {
+    display: grid;
+    gap: 2px;
+  }
+
+  .header-panel {
+    padding: 10px 12px;
+    margin-bottom: 8px;
+  }
+
+  h1 {
+    font-size: clamp(1.45rem, 7vw, 2.1rem);
+  }
+
+  .byline {
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+  }
+
+  .build-version {
+    margin: 0;
+    margin-left: auto;
+    font-size: 0.62rem;
+    letter-spacing: 0.14em;
+    opacity: 0.72;
+  }
+
+  .stage-panel {
+    padding: 8px;
     gap: 8px;
+  }
+
+  .mobile-score-pill {
+    top: 10px;
+    right: 10px;
+    min-width: 66px;
+    padding: 7px 9px;
+  }
+
+  .game-over-overlay {
+    align-items: start;
+    padding: 18px 14px 14px;
+  }
+
+  .game-over-card {
+    width: min(100%, 300px);
+    padding: 18px 16px;
+  }
+
+  .game-over-title {
+    font-size: 1.7rem;
+  }
+
+  .game-over-reason {
+    margin-top: 7px;
+    font-size: 0.76rem;
+  }
+
+  .game-over-stat {
+    margin-top: 10px;
+  }
+
+  .game-over-action {
+    margin-top: 12px;
+  }
+
+  .stage-controls {
+    width: 100%;
+    max-width: 360px;
+    justify-self: center;
   }
 
   .controls-row {
@@ -380,12 +679,40 @@ h1 {
   }
 
   .word-readout {
-    font-size: 1.35rem;
-    width: min(100%, 222px);
+    font-size: clamp(1.18rem, 5vw, 1.35rem);
+    width: 100%;
+    height: 42px;
   }
 
-  .controls-row {
-    width: min(100%, 222px);
+  .mobile-history-preview {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+
+  .mobile-history-title {
+    font-size: 0.64rem;
+  }
+
+  .sidebar {
+    grid-template-columns: 1fr;
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .score-card {
+    padding: 12px 14px;
+  }
+
+  .score-value {
+    font-size: 2.3rem;
+  }
+
+  .action {
+    height: 42px;
+  }
+
+  .history-sheet-panel {
+    max-height: 78svh;
   }
 
 }
