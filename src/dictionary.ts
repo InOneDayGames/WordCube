@@ -1,8 +1,9 @@
 async function loadWordList(path: string): Promise<Set<string>> {
-  const response = await fetch(path)
+  const url = new URL(path, document.baseURI).toString()
+  const response = await fetch(url)
 
   if (!response.ok) {
-    throw new Error(`Unable to load word list: ${path}`)
+    throw new Error(`Unable to load word list: ${url}`)
   }
 
   const text = await response.text()
@@ -16,9 +17,9 @@ async function loadWordList(path: string): Promise<Set<string>> {
 }
 
 export async function loadDictionary(): Promise<Set<string>> {
-  return loadWordList('/dictionary.txt')
+  return loadWordList('dictionary.txt')
 }
 
 export async function loadPopularDictionary(): Promise<Set<string>> {
-  return loadWordList('/popular.txt')
+  return loadWordList('popular.txt')
 }
