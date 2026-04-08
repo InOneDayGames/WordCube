@@ -239,6 +239,21 @@ function renderCube() {
   cubeView.setState(state.cube, state.selectedFaces, state.yawRadians, state.pitchRadians)
 }
 
+function updateSelectionUi() {
+  const wordReadout = appRoot.querySelector<HTMLElement>('.word-readout')
+  if (wordReadout) {
+    wordReadout.innerHTML = currentWord() || '&nbsp;'
+  }
+
+  appRoot.querySelectorAll<HTMLButtonElement>('[data-action="submit"]').forEach((button) => {
+    button.disabled = submitDisabled()
+  })
+
+  appRoot.querySelectorAll<HTMLButtonElement>('[data-action="clear"]').forEach((button) => {
+    button.disabled = state.selectedFaces.length === 0
+  })
+}
+
 
 function handleFaceSelect(faceKey: string) {
   if (state.gameOverReason) {
@@ -252,14 +267,13 @@ function handleFaceSelect(faceKey: string) {
       state.selectedFaces.length === 0
         ? 'Face is not selectable.'
         : 'Next face must share a common edge with the previous face.'
-    renderShell()
     renderCube()
     return
   }
 
   state.selectedFaces = [...state.selectedFaces, faceKey]
   state.status = 'Face added.'
-  renderShell()
+  updateSelectionUi()
   renderCube()
 }
 
@@ -318,7 +332,6 @@ function handleYawChange(yawRadians: number, pitchRadians = state.pitchRadians) 
   if (!state.gameOverReason) {
     state.status = 'Selection preserved.'
   }
-  renderShell()
   renderCube()
 }
 

@@ -2,8 +2,8 @@ import * as THREE from 'three'
 import { CUBE_SIZE, DIRECTIONS, createFaceKey, type CubeState, type Direction } from './cube'
 
 const CELL_SIZE = 1
-const FACE_SIZE = 0.92
-const SURFACE_OFFSET = 0.505
+const FACE_SIZE = 1.01
+const SURFACE_OFFSET = 0.501
 const CUBE_RENDER_SCALE = 1
 const CUBE_VERTICAL_OFFSET = 0.0
 const DRAG_DEADZONE_PX = 10
@@ -24,6 +24,9 @@ export class CubeView {
   private readonly onYawChange: (yawRadians: number, pitchRadians: number) => void
   private readonly resizeObserver: ResizeObserver
   private faceMeshes: THREE.Mesh[] = []
+  private readonly faceMeshByKey = new Map<string, THREE.Mesh>()
+  private currentCube: CubeState | null = null
+  private selectedFaceKeys = new Set<string>()
   private yawRadians = 0
   private pitchRadians = 0
   private dragYawOffset = 0
@@ -90,7 +93,12 @@ export class CubeView {
     this.yawRadians = yawRadians
     this.pitchRadians = pitchRadians
     this.applyYawRotation()
-    this.rebuildFaces(cube, new Set(selectedFaceKeys))
+    if (this.currentCube !== cube) {
+      this.rebuildFaces(cube)
+      this.currentCube = cube
+      this.selectedFaceKeys = new Set()
+    }
+    this.updateSelectedFaces(new Set(selectedFaceKeys))
     this.render()
   }
 
@@ -128,7 +136,7 @@ export class CubeView {
     this.cubeRoot.rotation.set(clampedPitch, this.yawRadians + this.dragYawOffset, 0)
   }
 
-  private rebuildFaces(cube: CubeState, selectedFaceKeys: Set<string>) {
+  private rebuildFaces(cube: CubeState) {
     this.faceMeshes.forEach((mesh) => {
       this.cubeRoot.remove(mesh)
       mesh.geometry.dispose()
@@ -143,6 +151,7 @@ export class CubeView {
     })
 
     this.faceMeshes = []
+    this.faceMeshByKey.clear()
 
     for (const block of cube.blocks) {
       if (block.removed) {
@@ -157,13 +166,54 @@ export class CubeView {
           block.z,
           direction,
           block.letters[direction],
-          selectedFaceKeys.has(faceKey),
+          false,
         )
         mesh.userData.faceKey = faceKey
+        mesh.userData.letter = block.letters[direction]
+        mesh.userData.direction = direction
+        mesh.userData.selected = false
         this.faceMeshes.push(mesh)
+        this.faceMeshByKey.set(faceKey, mesh)
         this.cubeRoot.add(mesh)
       }
     }
+  }
+
+  private updateSelectedFaces(nextSelectedFaceKeys: Set<string>) {
+    const changedKeys = new Set<string>()
+
+    for (const key of this.selectedFaceKeys) {
+      if (!nextSelectedFaceKeys.has(key)) {
+        changedKeys.add(key)
+      }
+    }
+
+    for (const key of nextSelectedFaceKeys) {
+      if (!this.selectedFaceKeys.has(key)) {
+        changedKeys.add(key)
+      }
+    }
+
+    for (const key of changedKeys) {
+      const mesh = this.faceMeshByKey.get(key)
+
+      if (!mesh) {
+        continue
+      }
+
+      const nextSelected = nextSelectedFaceKeys.has(key)
+      const material = mesh.material as THREE.MeshBasicMaterial
+      material.map?.dispose()
+      material.map = createLetterTexture(
+        mesh.userData.letter as string,
+        mesh.userData.direction as Direction,
+        nextSelected,
+      )
+      material.needsUpdate = true
+      mesh.userData.selected = nextSelected
+    }
+
+    this.selectedFaceKeys = nextSelectedFaceKeys
   }
 
   private createFaceMesh(
@@ -318,7 +368,7 @@ export class CubeView {
     this.renderer.domElement.releasePointerCapture(event.pointerId)
   }
 
-  private pickFace(clientX: number, clientY: number) {
+  private pickFace(clientX: number, clientY: number): boolean {
     const bounds = this.renderer.domElement.getBoundingClientRect()
     this.pointer.x = ((clientX - bounds.left) / bounds.width) * 2 - 1
     this.pointer.y = -((clientY - bounds.top) / bounds.height) * 2 + 1
@@ -326,7 +376,7 @@ export class CubeView {
     const hits = this.raycaster.intersectObjects(this.faceMeshes, false)
 
     if (hits.length === 0) {
-      return
+      return false
     }
 
     const firstHit = hits[0].object as THREE.Mesh
@@ -334,7 +384,10 @@ export class CubeView {
 
     if (faceKey) {
       this.onFaceSelect(faceKey)
+      return true
     }
+
+    return false
   }
 }
 
