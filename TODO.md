@@ -3,9 +3,12 @@
 ## Next
 - Improve selection responsiveness so input feels snappier.
 - Improve the look of the blocks and remove visible gaps between them.
+- Delay the game-over overlay so the final cube state remains visible before the end screen appears.
+- Allow tapping an already selected face to rewind the path to that point.
 - Get layout working on tablet form.
 - Redesign the overall presentation so it feels like a serious Wordle-style competitor.
 - Improve the presentation of Found Words.
+- Replace system font stacks with deliberate web fonts for a consistent cross-device identity.
 - Improve affordances, including making the 4-letter minimum more obvious.
 - Add a tutorial or clearer help text.
 - Accessibility pass: contrast, focus states, reduced motion, readable status messaging.

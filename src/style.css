@@ -252,6 +252,37 @@ h1 {
   font-weight: 700;
   letter-spacing: 0.12em;
   line-height: 1;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background-color 120ms ease,
+    opacity 120ms ease;
+}
+
+.word-readout.is-short {
+  color: rgba(22, 32, 41, 0.52);
+  border-color: rgba(70, 79, 89, 0.12);
+  background: rgba(241, 237, 229, 0.7);
+}
+
+.word-readout.is-empty {
+  color: #7a6442;
+  font-size: 0.78rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.word-readout.is-valid {
+  border-color: rgba(157, 45, 52, 0.42);
+  background: rgba(250, 237, 236, 0.92);
+}
+
+.word-readout-text {
+  min-width: 0;
+}
+
+.word-readout.is-valid .word-readout-text {
+  color: #9d2d34;
 }
 
 .controls-row {
@@ -682,6 +713,11 @@ h1 {
     font-size: clamp(1.18rem, 5vw, 1.35rem);
     width: 100%;
     height: 42px;
+  }
+
+  .word-readout.is-empty {
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
   }
 
   .mobile-history-preview {

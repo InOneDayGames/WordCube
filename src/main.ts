@@ -110,7 +110,7 @@ function renderShell() {
             ${renderGameOverOverlay()}
           </div>
           <div class="stage-controls">
-            <div class="word-readout">${currentWord() || '&nbsp;'}</div>
+            ${renderWordReadout()}
 
             <div class="controls-row">
               <button class="action" data-action="submit" ${submitDisabled() ? 'disabled' : ''}>
@@ -242,7 +242,7 @@ function renderCube() {
 function updateSelectionUi() {
   const wordReadout = appRoot.querySelector<HTMLElement>('.word-readout')
   if (wordReadout) {
-    wordReadout.innerHTML = currentWord() || '&nbsp;'
+    wordReadout.outerHTML = renderWordReadout()
   }
 
   appRoot.querySelectorAll<HTMLButtonElement>('[data-action="submit"]').forEach((button) => {
@@ -252,6 +252,31 @@ function updateSelectionUi() {
   appRoot.querySelectorAll<HTMLButtonElement>('[data-action="clear"]').forEach((button) => {
     button.disabled = state.selectedFaces.length === 0
   })
+}
+
+function renderWordReadout(): string {
+  const word = currentWord()
+  const length = word.length
+  const validWord = Boolean(state.dictionary && length >= 4 && state.dictionary.has(word))
+  const classes = ['word-readout']
+
+  if (length === 0) {
+    classes.push('is-empty')
+  }
+
+  if (length > 0 && length < 4) {
+    classes.push('is-short')
+  }
+
+  if (validWord) {
+    classes.push('is-valid')
+  }
+
+  return `
+    <div class="${classes.join(' ')}">
+      <span class="word-readout-text">${word || '4+ letters'}</span>
+    </div>
+  `
 }
 
 
