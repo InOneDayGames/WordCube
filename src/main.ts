@@ -91,11 +91,16 @@ function renderShell() {
     <main class="app-shell">
       <section class="panel header-panel">
         <div class="header-topline">
-          <div class="title-line">
+          <div class="title-lockup">
             <h1>WORD CUBE</h1>
-            <span class="byline">by TOM HEATON</span>
+            <span class="byline">by Tom Heaton</span>
           </div>
-          <p class="build-version" aria-label="Build ${APP_VERSION}">Build ${APP_VERSION}</p>
+          <div class="header-meta">
+            <p class="build-version" aria-label="Build ${APP_VERSION}">Build ${APP_VERSION}</p>
+            <button class="debug-link" data-action="rapid-solve" ${state.loading || state.gameOverReason ? 'disabled' : ''}>
+              Rapid solve
+            </button>
+          </div>
         </div>
       </section>
 
@@ -134,22 +139,18 @@ function renderShell() {
           <div class="score-card">
             <p class="score-label">Score</p>
             <p class="score-value">${state.score}</p>
-            ${renderScoreEvents()}
           </div>
 
           <section class="history-panel">
             <p class="history-label">Found Words</p>
-            <div class="history-list">
-              ${renderFoundWords()}
+            <div class="history-card">
+              ${renderDesktopFoundWords()}
             </div>
           </section>
 
-          <button class="action rapid-action" data-action="hint" ${state.loading || state.gameOverReason ? 'disabled' : ''}>
-            Hint
-          </button>
-
-          <button class="action rapid-action" data-action="rapid-solve" ${state.loading || state.gameOverReason ? 'disabled' : ''}>
-            Rapid solve
+          <button class="action rapid-action action-with-icon action-secondary" data-action="hint" ${state.loading || state.gameOverReason ? 'disabled' : ''}>
+            <span class="action-icon" aria-hidden="true">${renderActionIcon('hint')}</span>
+            <span class="action-label">Hint</span>
           </button>
         </aside>
       </section>
@@ -385,6 +386,29 @@ function renderFoundWords(): string {
     .join('')
 }
 
+function renderDesktopFoundWords(): string {
+  const minimumRows = 8
+  const rows = state.foundWords.map(
+    ({ word, points }) => `
+      <div class="desktop-history-row">
+        <span class="desktop-history-word">${word}</span>
+        <span class="desktop-history-points">${points === null ? 'HINT' : `+${points}`}</span>
+      </div>
+    `,
+  )
+
+  while (rows.length < minimumRows) {
+    rows.push('<div class="desktop-history-row is-empty" aria-hidden="true"></div>')
+  }
+
+  return `
+    ${state.foundWords.length === 0 ? '<div class="desktop-history-empty">No words found yet.</div>' : ''}
+    <div class="desktop-history-scroll">
+      ${rows.join('')}
+    </div>
+  `
+}
+
 function renderMobileHistoryPreview(): string {
   const recentWords = state.foundWords.slice(0, 2)
   const remainingWordCount = Math.max(0, state.foundWords.length - recentWords.length)
@@ -462,23 +486,21 @@ function renderHistorySheet(): string {
   `
 }
 
-function renderScoreEvents(): string {
-  const bonusEvents = state.scoreEvents.filter(({ label }) => label === 'Cube cleared')
-
-  if (bonusEvents.length === 0) {
-    return ''
+function renderActionIcon(kind: 'hint' | 'rapid'): string {
+  if (kind === 'hint') {
+    return `
+      <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <path d="M10 2.5a5.1 5.1 0 0 0-3.72 8.6c.62.66 1 1.42 1.13 2.27h5.18c.12-.85.5-1.61 1.12-2.27A5.1 5.1 0 0 0 10 2.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
+        <path d="M7.9 15.15h4.2M8.4 17.2h3.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      </svg>
+    `
   }
 
-  return bonusEvents
-    .map(
-      ({ label, points }) => `
-        <div class="score-event">
-          <span class="score-event-label">${label}</span>
-          <span class="score-event-points">+${points}</span>
-        </div>
-      `,
-    )
-    .join('')
+  return `
+    <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <path d="M11.6 1.8 5.7 10h3.4l-1.1 8.2 6-8.8h-3.5l1.1-7.6Z" fill="currentColor"/>
+    </svg>
+  `
 }
 
 function buildPrefixes(words: Set<string>): Set<string> {

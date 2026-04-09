@@ -431,12 +431,23 @@ function createLetterTexture(letter: string, direction: Direction, selected: boo
     throw new Error('Unable to create canvas texture context')
   }
 
-  context.fillStyle = selected ? '#f4d35e' : faceColor(direction)
-  context.fillRect(0, 0, 128, 128)
+  if (selected) {
+    context.fillStyle = '#ffe184'
+    roundRect(context, 10, 10, 108, 108, 10)
+    context.fill()
 
-  context.strokeStyle = selected ? '#946c00' : '#31424f'
-  context.lineWidth = 8
-  context.strokeRect(4, 4, 120, 120)
+    context.strokeStyle = '#b88918'
+    context.lineWidth = 4
+    roundRect(context, 10, 10, 108, 108, 10)
+    context.stroke()
+  } else {
+    context.fillStyle = faceColor(direction)
+    context.fillRect(0, 0, 128, 128)
+
+    context.strokeStyle = '#31424f'
+    context.lineWidth = 8
+    context.strokeRect(4, 4, 120, 120)
+  }
 
   context.fillStyle = '#16212a'
   context.font = '700 72px Georgia'
@@ -462,4 +473,25 @@ function faceColor(direction: Direction): string {
     case 'ny':
       return '#d2d7dc'
   }
+}
+
+function roundRect(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+) {
+  context.beginPath()
+  context.moveTo(x + radius, y)
+  context.lineTo(x + width - radius, y)
+  context.quadraticCurveTo(x + width, y, x + width, y + radius)
+  context.lineTo(x + width, y + height - radius)
+  context.quadraticCurveTo(x + width, y + height, x + width - radius, y + height)
+  context.lineTo(x + radius, y + height)
+  context.quadraticCurveTo(x, y + height, x, y + height - radius)
+  context.lineTo(x, y + radius)
+  context.quadraticCurveTo(x, y, x + radius, y)
+  context.closePath()
 }
