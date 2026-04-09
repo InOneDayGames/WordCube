@@ -2,6 +2,7 @@
 
 ## Next
 - Improve selection responsiveness so input feels snappier.
+- Investigate the laggy submit button feel.
 - Improve the look of the blocks and remove visible gaps between them.
 - Delay the game-over overlay so the final cube state remains visible before the end screen appears.
 - Allow tapping an already selected face to rewind the path to that point.

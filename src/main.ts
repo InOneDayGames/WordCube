@@ -64,6 +64,8 @@ const state: AppState = {
 
 let cubeView: CubeView | null = null
 
+window.addEventListener('resize', handleViewportModeChange)
+
 renderShell()
 void bootstrap()
 
@@ -87,6 +89,8 @@ async function bootstrap() {
 }
 
 function renderShell() {
+  updateViewportModeClasses()
+
   appRoot.innerHTML = `
     <main class="app-shell">
       <section class="panel header-panel">
@@ -131,6 +135,11 @@ function renderShell() {
                 ×
               </button>
             </div>
+
+            <button class="action action-with-icon action-secondary tablet-landscape-hint" data-action="hint" ${state.loading || state.gameOverReason ? 'disabled' : ''}>
+              <span class="action-icon" aria-hidden="true">${renderActionIcon('hint')}</span>
+              <span class="action-label">Hint</span>
+            </button>
           </div>
           <section class="mobile-history-preview" aria-label="Recent found words">${renderMobileHistoryPreview()}</section>
         </section>
@@ -148,7 +157,7 @@ function renderShell() {
             </div>
           </section>
 
-          <button class="action rapid-action action-with-icon action-secondary" data-action="hint" ${state.loading || state.gameOverReason ? 'disabled' : ''}>
+          <button class="action rapid-action action-with-icon action-secondary sidebar-hint" data-action="hint" ${state.loading || state.gameOverReason ? 'disabled' : ''}>
             <span class="action-icon" aria-hidden="true">${renderActionIcon('hint')}</span>
             <span class="action-label">Hint</span>
           </button>
@@ -160,6 +169,19 @@ function renderShell() {
 
   document.body.classList.toggle('history-sheet-open', state.historySheetOpen)
   bindUi()
+}
+
+function handleViewportModeChange() {
+  updateViewportModeClasses()
+}
+
+function updateViewportModeClasses() {
+  const width = window.innerWidth
+  const height = window.innerHeight
+  const tabletLandscape =
+    width >= 900 && width <= 1500 && height >= 600 && height <= 1100 && width > height
+
+  document.body.classList.toggle('mode-tablet-landscape', tabletLandscape)
 }
 
 function bindUi() {
@@ -410,7 +432,7 @@ function renderDesktopFoundWords(): string {
 }
 
 function renderMobileHistoryPreview(): string {
-  const recentWords = state.foundWords.slice(0, 2)
+  const recentWords = state.foundWords.slice(0, 6)
   const remainingWordCount = Math.max(0, state.foundWords.length - recentWords.length)
   const hasWords = state.foundWords.length > 0
 
