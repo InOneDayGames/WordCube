@@ -31,6 +31,7 @@ type AppState = {
   hintedWords: Set<string>
   hintUsedThisRun: boolean
   historySheetOpen: boolean
+  resolvingTurn: boolean
 }
 
 const CUBE_CLEAR_BONUS = 3
@@ -60,6 +61,7 @@ const state: AppState = {
   hintedWords: new Set(),
   hintUsedThisRun: false,
   historySheetOpen: false,
+  resolvingTurn: false,
 }
 
 let cubeView: CubeView | null = null
@@ -101,7 +103,7 @@ function renderShell() {
           </div>
           <div class="header-meta">
             <p class="build-version" aria-label="Build ${APP_VERSION}">Build ${APP_VERSION}</p>
-            <button class="debug-link" data-action="rapid-solve" ${state.loading || state.gameOverReason ? 'disabled' : ''}>
+            <button class="debug-link" data-action="rapid-solve" ${state.loading || state.gameOverReason || state.resolvingTurn ? 'disabled' : ''}>
               Rapid solve
             </button>
           </div>
@@ -136,7 +138,7 @@ function renderShell() {
               </button>
             </div>
 
-            <button class="action action-with-icon action-secondary tablet-landscape-hint" data-action="hint" ${state.loading || state.gameOverReason ? 'disabled' : ''}>
+            <button class="action action-with-icon action-secondary tablet-landscape-hint" data-action="hint" ${state.loading || state.gameOverReason || state.resolvingTurn ? 'disabled' : ''}>
               <span class="action-icon" aria-hidden="true">${renderActionIcon('hint')}</span>
               <span class="action-label">Hint</span>
             </button>
@@ -157,7 +159,7 @@ function renderShell() {
             </div>
           </section>
 
-          <button class="action rapid-action action-with-icon action-secondary sidebar-hint" data-action="hint" ${state.loading || state.gameOverReason ? 'disabled' : ''}>
+          <button class="action rapid-action action-with-icon action-secondary sidebar-hint" data-action="hint" ${state.loading || state.gameOverReason || state.resolvingTurn ? 'disabled' : ''}>
             <span class="action-icon" aria-hidden="true">${renderActionIcon('hint')}</span>
             <span class="action-label">Hint</span>
           </button>
@@ -186,7 +188,7 @@ function updateViewportModeClasses() {
 
 function bindUi() {
   bindButtons('[data-action="clear"]', () => {
-    if (state.gameOverReason) {
+    if (state.gameOverReason || state.resolvingTurn) {
       return
     }
 
@@ -242,7 +244,29 @@ function bindUi() {
 
 function bindButtons(selector: string, onClick: () => void) {
   appRoot.querySelectorAll<HTMLButtonElement>(selector).forEach((button) => {
-    button.addEventListener('click', onClick)
+    let lastPointerActivation = -1
+
+    button.addEventListener('pointerup', (event) => {
+      if (event.button !== 0 || button.disabled) {
+        return
+      }
+
+      lastPointerActivation = event.timeStamp
+      onClick()
+    })
+
+    button.addEventListener('click', (event) => {
+      if (button.disabled) {
+        return
+      }
+
+      // Touch browsers may synthesize a delayed click after pointerup.
+      if (lastPointerActivation >= 0 && event.timeStamp - lastPointerActivation < 750) {
+        return
+      }
+
+      onClick()
+    })
   })
 }
 
@@ -273,7 +297,7 @@ function updateSelectionUi() {
   })
 
   appRoot.querySelectorAll<HTMLButtonElement>('[data-action="clear"]').forEach((button) => {
-    button.disabled = state.selectedFaces.length === 0
+    button.disabled = state.selectedFaces.length === 0 || state.resolvingTurn
   })
 }
 
@@ -326,7 +350,7 @@ function handleFaceSelect(faceKey: string) {
 }
 
 function submitSelection() {
-  if (!state.dictionary || state.gameOverReason) {
+  if (!state.dictionary || state.gameOverReason || state.resolvingTurn) {
     return
   }
 
@@ -360,13 +384,20 @@ function submitSelection() {
   state.foundWords = [{ word, points }, ...state.foundWords]
   state.cube = removeSelectedBlocks(state.cube, state.selectedFaces, faceMap)
   state.selectedFaces = []
+  state.resolvingTurn = true
   state.status =
     points === null
       ? `${word} accepted as a hint. No score awarded. Selected blocks removed.`
       : `${word} accepted for ${points} point${points === 1 ? '' : 's'}. Selected blocks removed.`
-  updateGameOverState()
   renderShell()
   renderCube()
+
+  window.setTimeout(() => {
+    updateGameOverState()
+    state.resolvingTurn = false
+    renderShell()
+    renderCube()
+  }, 0)
 }
 
 function currentWord(): string {
@@ -384,7 +415,7 @@ function handleYawChange(yawRadians: number, pitchRadians = state.pitchRadians) 
 }
 
 function submitDisabled(): boolean {
-  return state.loading || state.selectedFaces.length === 0 || state.gameOverReason !== null
+  return state.loading || state.selectedFaces.length === 0 || state.gameOverReason !== null || state.resolvingTurn
 }
 
 function scoreWord(word: string): number {
@@ -648,7 +679,7 @@ function awardCubeClearBonus() {
 }
 
 function rapidSolve() {
-  if (!state.dictionary || state.gameOverReason) {
+  if (!state.dictionary || state.gameOverReason || state.resolvingTurn) {
     return
   }
 
@@ -703,13 +734,14 @@ function replayGame() {
   state.hintedWords = new Set()
   state.hintUsedThisRun = false
   state.historySheetOpen = false
+  state.resolvingTurn = false
   state.status = 'Select adjacent visible faces that share an edge.'
   renderShell()
   renderCube()
 }
 
 function applyHint() {
-  if (!state.dictionary || !state.popularDictionary || state.gameOverReason) {
+  if (!state.dictionary || !state.popularDictionary || state.gameOverReason || state.resolvingTurn) {
     return
   }
 

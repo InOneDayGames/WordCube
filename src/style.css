@@ -59,6 +59,7 @@ select {
 
 button {
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 h1,

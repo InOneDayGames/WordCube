@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { CUBE_SIZE, DIRECTIONS, createFaceKey, type CubeState, type Direction } from './cube'
+import { CUBE_SIZE, createFaceKey, getExposedFaces, type CubeState, type Direction } from './cube'
 
 const CELL_SIZE = 1
 const FACE_SIZE = 1.01
@@ -23,6 +23,7 @@ export class CubeView {
   private readonly onFaceSelect: (faceKey: string) => void
   private readonly onYawChange: (yawRadians: number, pitchRadians: number) => void
   private readonly resizeObserver: ResizeObserver
+  private readonly textureCache = new Map<string, THREE.CanvasTexture>()
   private faceMeshes: THREE.Mesh[] = []
   private readonly faceMeshByKey = new Map<string, THREE.Mesh>()
   private currentCube: CubeState | null = null
@@ -108,6 +109,8 @@ export class CubeView {
     this.renderer.domElement.removeEventListener('pointerup', this.handlePointerUp)
     this.renderer.domElement.removeEventListener('pointercancel', this.handlePointerCancel)
     this.resizeObserver.disconnect()
+    this.textureCache.forEach((texture) => texture.dispose())
+    this.textureCache.clear()
     this.renderer.dispose()
   }
 
@@ -144,8 +147,6 @@ export class CubeView {
       if (Array.isArray(material)) {
         material.forEach((entry) => entry.dispose())
       } else {
-        const texturedMaterial = material as THREE.MeshBasicMaterial
-        texturedMaterial.map?.dispose()
         material.dispose()
       }
     })
@@ -153,29 +154,16 @@ export class CubeView {
     this.faceMeshes = []
     this.faceMeshByKey.clear()
 
-    for (const block of cube.blocks) {
-      if (block.removed) {
-        continue
-      }
-
-      for (const direction of DIRECTIONS) {
-        const faceKey = createFaceKey(block.id, direction)
-        const mesh = this.createFaceMesh(
-          block.x,
-          block.y,
-          block.z,
-          direction,
-          block.letters[direction],
-          false,
-        )
-        mesh.userData.faceKey = faceKey
-        mesh.userData.letter = block.letters[direction]
-        mesh.userData.direction = direction
-        mesh.userData.selected = false
-        this.faceMeshes.push(mesh)
-        this.faceMeshByKey.set(faceKey, mesh)
-        this.cubeRoot.add(mesh)
-      }
+    for (const face of getExposedFaces(cube)) {
+      const faceKey = createFaceKey(face.blockId, face.direction)
+      const mesh = this.createFaceMesh(face.x, face.y, face.z, face.direction, face.letter, false)
+      mesh.userData.faceKey = faceKey
+      mesh.userData.letter = face.letter
+      mesh.userData.direction = face.direction
+      mesh.userData.selected = false
+      this.faceMeshes.push(mesh)
+      this.faceMeshByKey.set(faceKey, mesh)
+      this.cubeRoot.add(mesh)
     }
   }
 
@@ -203,12 +191,7 @@ export class CubeView {
 
       const nextSelected = nextSelectedFaceKeys.has(key)
       const material = mesh.material as THREE.MeshBasicMaterial
-      material.map?.dispose()
-      material.map = createLetterTexture(
-        mesh.userData.letter as string,
-        mesh.userData.direction as Direction,
-        nextSelected,
-      )
+      material.map = this.getLetterTexture(mesh.userData.letter as string, mesh.userData.direction as Direction, nextSelected)
       material.needsUpdate = true
       mesh.userData.selected = nextSelected
     }
@@ -226,7 +209,7 @@ export class CubeView {
   ): THREE.Mesh {
     const geometry = new THREE.PlaneGeometry(FACE_SIZE, FACE_SIZE)
     const material = new THREE.MeshBasicMaterial({
-      map: createLetterTexture(letter, direction, selected),
+      map: this.getLetterTexture(letter, direction, selected),
       transparent: false,
       side: THREE.FrontSide,
     })
@@ -262,6 +245,19 @@ export class CubeView {
     }
 
     return mesh
+  }
+
+  private getLetterTexture(letter: string, direction: Direction, selected: boolean): THREE.CanvasTexture {
+    const cacheKey = `${letter}:${direction}:${selected ? '1' : '0'}`
+    const cachedTexture = this.textureCache.get(cacheKey)
+
+    if (cachedTexture) {
+      return cachedTexture
+    }
+
+    const texture = createLetterTexture(letter, direction, selected)
+    this.textureCache.set(cacheKey, texture)
+    return texture
   }
 
   private handlePointerDown = (event: PointerEvent) => {
