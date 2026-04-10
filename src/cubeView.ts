@@ -11,6 +11,7 @@ const DRAG_RADIANS_PER_PIXEL = 0.006
 const MAX_PITCH_RADIANS = Math.PI / 4
 const DEFAULT_CAMERA_RADIUS = 12
 const COMPACT_CAMERA_RADIUS = 10
+export const CUBE_LETTER_FONT_FAMILY = '"Libre Baskerville"'
 
 export class CubeView {
   private readonly container: HTMLElement
@@ -112,6 +113,23 @@ export class CubeView {
     this.textureCache.forEach((texture) => texture.dispose())
     this.textureCache.clear()
     this.renderer.dispose()
+  }
+
+  refreshLetterTextures() {
+    this.textureCache.forEach((texture) => texture.dispose())
+    this.textureCache.clear()
+
+    this.faceMeshes.forEach((mesh) => {
+      const material = mesh.material as THREE.MeshBasicMaterial
+      material.map = this.getLetterTexture(
+        mesh.userData.letter as string,
+        mesh.userData.direction as Direction,
+        Boolean(mesh.userData.selected),
+      )
+      material.needsUpdate = true
+    })
+
+    this.render()
   }
 
   private resize() {
@@ -446,7 +464,7 @@ function createLetterTexture(letter: string, direction: Direction, selected: boo
   }
 
   context.fillStyle = '#16212a'
-  context.font = '700 72px Georgia'
+  context.font = `700 72px ${CUBE_LETTER_FONT_FAMILY}, Georgia, serif`
   context.textAlign = 'center'
   context.textBaseline = 'middle'
   context.fillText(letter, 64, 68)

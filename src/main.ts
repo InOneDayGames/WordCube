@@ -9,9 +9,11 @@ import {
   selectionToWord,
   type CubeState,
 } from './cube'
-import { CubeView } from './cubeView'
+import { CUBE_LETTER_FONT_FAMILY, CubeView } from './cubeView'
 import { loadDictionary, loadPopularDictionary } from './dictionary'
 import { APP_VERSION } from './version'
+
+type GameOverReason = 'cleared' | 'no_more_words'
 
 type AppState = {
   cube: CubeState
@@ -27,7 +29,8 @@ type AppState = {
   pitchRadians: number
   status: string
   loading: boolean
-  gameOverReason: 'cleared' | 'no_more_words' | null
+  gameOverReason: GameOverReason | null
+  pendingGameOverReason: GameOverReason | null
   hintedWords: Set<string>
   hintUsedThisRun: boolean
   historySheetOpen: boolean
@@ -35,6 +38,10 @@ type AppState = {
 }
 
 const CUBE_CLEAR_BONUS = 3
+const GAME_OVER_OVERLAY_DELAY_BY_REASON: Record<GameOverReason, number> = {
+  cleared: 1000,
+  no_more_words: 1500,
+}
 
 const app = document.querySelector<HTMLDivElement>('#app')
 
@@ -58,6 +65,7 @@ const state: AppState = {
   status: 'Loading dictionary…',
   loading: true,
   gameOverReason: null,
+  pendingGameOverReason: null,
   hintedWords: new Set(),
   hintUsedThisRun: false,
   historySheetOpen: false,
@@ -65,6 +73,8 @@ const state: AppState = {
 }
 
 let cubeView: CubeView | null = null
+let gameOverRevealTimeoutId: number | null = null
+void loadCubeLetterFont()
 
 window.addEventListener('resize', handleViewportModeChange)
 
@@ -103,7 +113,7 @@ function renderShell() {
           </div>
           <div class="header-meta">
             <p class="build-version" aria-label="Build ${APP_VERSION}">Build ${APP_VERSION}</p>
-            <button class="debug-link" data-action="rapid-solve" ${state.loading || state.gameOverReason || state.resolvingTurn ? 'disabled' : ''}>
+            <button class="debug-link" data-action="rapid-solve" ${controlsLocked() ? 'disabled' : ''}>
               Rapid solve
             </button>
           </div>
@@ -138,7 +148,7 @@ function renderShell() {
               </button>
             </div>
 
-            <button class="action action-with-icon action-secondary tablet-landscape-hint" data-action="hint" ${state.loading || state.gameOverReason || state.resolvingTurn ? 'disabled' : ''}>
+            <button class="action action-with-icon action-secondary tablet-landscape-hint" data-action="hint" ${controlsLocked() ? 'disabled' : ''}>
               <span class="action-icon" aria-hidden="true">${renderActionIcon('hint')}</span>
               <span class="action-label">Hint</span>
             </button>
@@ -159,7 +169,7 @@ function renderShell() {
             </div>
           </section>
 
-          <button class="action rapid-action action-with-icon action-secondary sidebar-hint" data-action="hint" ${state.loading || state.gameOverReason || state.resolvingTurn ? 'disabled' : ''}>
+          <button class="action rapid-action action-with-icon action-secondary sidebar-hint" data-action="hint" ${controlsLocked() ? 'disabled' : ''}>
             <span class="action-icon" aria-hidden="true">${renderActionIcon('hint')}</span>
             <span class="action-label">Hint</span>
           </button>
@@ -182,13 +192,16 @@ function updateViewportModeClasses() {
   const height = window.innerHeight
   const tabletLandscape =
     width >= 900 && width <= 1500 && height >= 600 && height <= 1100 && width > height
+  const tabletPortrait =
+    width >= 560 && width <= 1200 && height >= 900 && height <= 1600 && height > width
 
   document.body.classList.toggle('mode-tablet-landscape', tabletLandscape)
+  document.body.classList.toggle('mode-tablet-portrait', tabletPortrait)
 }
 
 function bindUi() {
   bindButtons('[data-action="clear"]', () => {
-    if (state.gameOverReason || state.resolvingTurn) {
+    if (controlsLocked()) {
       return
     }
 
@@ -286,6 +299,19 @@ function renderCube() {
   cubeView.setState(state.cube, state.selectedFaces, state.yawRadians, state.pitchRadians)
 }
 
+async function loadCubeLetterFont() {
+  if (!('fonts' in document)) {
+    return
+  }
+
+  try {
+    await document.fonts.load(`700 72px ${CUBE_LETTER_FONT_FAMILY}`)
+    cubeView?.refreshLetterTextures()
+  } catch {
+    // Keep the fallback serif rendering if the web font cannot be loaded.
+  }
+}
+
 function updateSelectionUi() {
   const wordReadout = appRoot.querySelector<HTMLElement>('.word-readout')
   if (wordReadout) {
@@ -297,7 +323,7 @@ function updateSelectionUi() {
   })
 
   appRoot.querySelectorAll<HTMLButtonElement>('[data-action="clear"]').forEach((button) => {
-    button.disabled = state.selectedFaces.length === 0 || state.resolvingTurn
+    button.disabled = state.selectedFaces.length === 0 || controlsLocked()
   })
 }
 
@@ -328,11 +354,20 @@ function renderWordReadout(): string {
 
 
 function handleFaceSelect(faceKey: string) {
-  if (state.gameOverReason) {
+  if (controlsLocked()) {
     return
   }
 
   const faceMap = buildFaceMap(getExposedFaces(state.cube))
+  const existingIndex = state.selectedFaces.indexOf(faceKey)
+
+  if (existingIndex >= 0) {
+    state.selectedFaces = state.selectedFaces.slice(0, existingIndex)
+    state.status = 'Selection rewound.'
+    updateSelectionUi()
+    renderCube()
+    return
+  }
 
   if (!canAppendFace(state.selectedFaces, faceKey, faceMap, state.cube)) {
     state.status =
@@ -350,7 +385,7 @@ function handleFaceSelect(faceKey: string) {
 }
 
 function submitSelection() {
-  if (!state.dictionary || state.gameOverReason || state.resolvingTurn) {
+  if (!state.dictionary || controlsLocked()) {
     return
   }
 
@@ -393,7 +428,7 @@ function submitSelection() {
   renderCube()
 
   window.setTimeout(() => {
-    updateGameOverState()
+    updateGameOverState({ delayOverlay: true })
     state.resolvingTurn = false
     renderShell()
     renderCube()
@@ -408,14 +443,14 @@ function currentWord(): string {
 function handleYawChange(yawRadians: number, pitchRadians = state.pitchRadians) {
   state.yawRadians = yawRadians
   state.pitchRadians = pitchRadians
-  if (!state.gameOverReason) {
+  if (!state.gameOverReason && !state.pendingGameOverReason) {
     state.status = 'Selection preserved.'
   }
   renderCube()
 }
 
 function submitDisabled(): boolean {
-  return state.loading || state.selectedFaces.length === 0 || state.gameOverReason !== null || state.resolvingTurn
+  return state.loading || state.selectedFaces.length === 0 || controlsLocked()
 }
 
 function scoreWord(word: string): number {
@@ -568,23 +603,59 @@ function buildPrefixes(words: Set<string>): Set<string> {
   return prefixes
 }
 
-function updateGameOverState() {
+function selectionLocked(): boolean {
+  return state.gameOverReason !== null || state.pendingGameOverReason !== null
+}
+
+function controlsLocked(): boolean {
+  return state.loading || state.resolvingTurn || selectionLocked()
+}
+
+function clearPendingGameOverReveal() {
+  if (gameOverRevealTimeoutId !== null) {
+    window.clearTimeout(gameOverRevealTimeoutId)
+    gameOverRevealTimeoutId = null
+  }
+
+  state.pendingGameOverReason = null
+}
+
+function updateGameOverState(options: { delayOverlay?: boolean } = {}) {
+  const { delayOverlay = false } = options
   const remainingBlocks = countRemainingBlocks(state.cube)
+  let nextReason: GameOverReason | null = null
 
   if (remainingBlocks === 0) {
     awardCubeClearBonus()
-    state.gameOverReason = 'cleared'
-    state.status = 'GAME OVER. Cube cleared.'
+    nextReason = 'cleared'
+  } else if (state.dictionary && !findAnyLegalWord(state.cube, state.dictionary, state.dictionaryPrefixes)) {
+    nextReason = 'no_more_words'
+  }
+
+  if (!nextReason) {
+    clearPendingGameOverReveal()
+    state.gameOverReason = null
     return
   }
 
-  if (state.dictionary && !findAnyLegalWord(state.cube, state.dictionary, state.dictionaryPrefixes)) {
-    state.gameOverReason = 'no_more_words'
-    state.status = 'GAME OVER. No more words.'
+  state.status = nextReason === 'cleared' ? 'GAME OVER. Cube cleared.' : 'GAME OVER. No more words.'
+
+  if (!delayOverlay) {
+    clearPendingGameOverReveal()
+    state.gameOverReason = nextReason
     return
   }
 
+  clearPendingGameOverReveal()
   state.gameOverReason = null
+  state.pendingGameOverReason = nextReason
+  gameOverRevealTimeoutId = window.setTimeout(() => {
+    state.pendingGameOverReason = null
+    state.gameOverReason = nextReason
+    gameOverRevealTimeoutId = null
+    renderShell()
+    renderCube()
+  }, GAME_OVER_OVERLAY_DELAY_BY_REASON[nextReason])
 }
 
 function findAnyLegalWord(
@@ -679,7 +750,7 @@ function awardCubeClearBonus() {
 }
 
 function rapidSolve() {
-  if (!state.dictionary || state.gameOverReason || state.resolvingTurn) {
+  if (!state.dictionary || controlsLocked()) {
     return
   }
 
@@ -725,12 +796,14 @@ function rapidSolve() {
 }
 
 function replayGame() {
+  clearPendingGameOverReveal()
   state.cube = createCubeState()
   state.selectedFaces = []
   state.score = 0
   state.foundWords = []
   state.scoreEvents = []
   state.gameOverReason = null
+  state.pendingGameOverReason = null
   state.hintedWords = new Set()
   state.hintUsedThisRun = false
   state.historySheetOpen = false
@@ -741,7 +814,7 @@ function replayGame() {
 }
 
 function applyHint() {
-  if (!state.dictionary || !state.popularDictionary || state.gameOverReason || state.resolvingTurn) {
+  if (!state.dictionary || !state.popularDictionary || controlsLocked()) {
     return
   }
 
