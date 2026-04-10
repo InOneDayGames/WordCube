@@ -12,6 +12,7 @@ const MAX_PITCH_RADIANS = Math.PI / 4
 const DEFAULT_CAMERA_RADIUS = 12
 const COMPACT_CAMERA_RADIUS = 10
 export const CUBE_LETTER_FONT_FAMILY = '"Libre Baskerville"'
+type FaceTextureState = 'normal' | 'selected' | 'legal'
 
 export class CubeView {
   private readonly container: HTMLElement
@@ -29,6 +30,7 @@ export class CubeView {
   private readonly faceMeshByKey = new Map<string, THREE.Mesh>()
   private currentCube: CubeState | null = null
   private selectedFaceKeys = new Set<string>()
+  private legalHintFaceKeys = new Set<string>()
   private yawRadians = 0
   private pitchRadians = 0
   private dragYawOffset = 0
@@ -91,7 +93,13 @@ export class CubeView {
     }
   }
 
-  setState(cube: CubeState, selectedFaceKeys: string[], yawRadians: number, pitchRadians: number) {
+  setState(
+    cube: CubeState,
+    selectedFaceKeys: string[],
+    yawRadians: number,
+    pitchRadians: number,
+    legalHintFaceKeys: string[] = [],
+  ) {
     this.yawRadians = yawRadians
     this.pitchRadians = pitchRadians
     this.applyYawRotation()
@@ -99,8 +107,9 @@ export class CubeView {
       this.rebuildFaces(cube)
       this.currentCube = cube
       this.selectedFaceKeys = new Set()
+      this.legalHintFaceKeys = new Set()
     }
-    this.updateSelectedFaces(new Set(selectedFaceKeys))
+    this.updateFaceTextureStates(new Set(selectedFaceKeys), new Set(legalHintFaceKeys))
     this.render()
   }
 
@@ -124,7 +133,7 @@ export class CubeView {
       material.map = this.getLetterTexture(
         mesh.userData.letter as string,
         mesh.userData.direction as Direction,
-        Boolean(mesh.userData.selected),
+        getFaceTextureState(Boolean(mesh.userData.selected), Boolean(mesh.userData.legalHint)),
       )
       material.needsUpdate = true
     })
@@ -179,13 +188,14 @@ export class CubeView {
       mesh.userData.letter = face.letter
       mesh.userData.direction = face.direction
       mesh.userData.selected = false
+      mesh.userData.legalHint = false
       this.faceMeshes.push(mesh)
       this.faceMeshByKey.set(faceKey, mesh)
       this.cubeRoot.add(mesh)
     }
   }
 
-  private updateSelectedFaces(nextSelectedFaceKeys: Set<string>) {
+  private updateFaceTextureStates(nextSelectedFaceKeys: Set<string>, nextLegalHintFaceKeys: Set<string>) {
     const changedKeys = new Set<string>()
 
     for (const key of this.selectedFaceKeys) {
@@ -200,6 +210,18 @@ export class CubeView {
       }
     }
 
+    for (const key of this.legalHintFaceKeys) {
+      if (!nextLegalHintFaceKeys.has(key)) {
+        changedKeys.add(key)
+      }
+    }
+
+    for (const key of nextLegalHintFaceKeys) {
+      if (!this.legalHintFaceKeys.has(key)) {
+        changedKeys.add(key)
+      }
+    }
+
     for (const key of changedKeys) {
       const mesh = this.faceMeshByKey.get(key)
 
@@ -208,13 +230,20 @@ export class CubeView {
       }
 
       const nextSelected = nextSelectedFaceKeys.has(key)
+      const nextLegalHint = !nextSelected && nextLegalHintFaceKeys.has(key)
       const material = mesh.material as THREE.MeshBasicMaterial
-      material.map = this.getLetterTexture(mesh.userData.letter as string, mesh.userData.direction as Direction, nextSelected)
+      material.map = this.getLetterTexture(
+        mesh.userData.letter as string,
+        mesh.userData.direction as Direction,
+        getFaceTextureState(nextSelected, nextLegalHint),
+      )
       material.needsUpdate = true
       mesh.userData.selected = nextSelected
+      mesh.userData.legalHint = nextLegalHint
     }
 
     this.selectedFaceKeys = nextSelectedFaceKeys
+    this.legalHintFaceKeys = nextLegalHintFaceKeys
   }
 
   private createFaceMesh(
@@ -227,7 +256,7 @@ export class CubeView {
   ): THREE.Mesh {
     const geometry = new THREE.PlaneGeometry(FACE_SIZE, FACE_SIZE)
     const material = new THREE.MeshBasicMaterial({
-      map: this.getLetterTexture(letter, direction, selected),
+      map: this.getLetterTexture(letter, direction, selected ? 'selected' : 'normal'),
       transparent: false,
       side: THREE.FrontSide,
     })
@@ -265,15 +294,15 @@ export class CubeView {
     return mesh
   }
 
-  private getLetterTexture(letter: string, direction: Direction, selected: boolean): THREE.CanvasTexture {
-    const cacheKey = `${letter}:${direction}:${selected ? '1' : '0'}`
+  private getLetterTexture(letter: string, direction: Direction, textureState: FaceTextureState): THREE.CanvasTexture {
+    const cacheKey = `${letter}:${direction}:${textureState}`
     const cachedTexture = this.textureCache.get(cacheKey)
 
     if (cachedTexture) {
       return cachedTexture
     }
 
-    const texture = createLetterTexture(letter, direction, selected)
+    const texture = createLetterTexture(letter, direction, textureState)
     this.textureCache.set(cacheKey, texture)
     return texture
   }
@@ -409,6 +438,18 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
+function getFaceTextureState(selected: boolean, legalHint: boolean): FaceTextureState {
+  if (selected) {
+    return 'selected'
+  }
+
+  if (legalHint) {
+    return 'legal'
+  }
+
+  return 'normal'
+}
+
 function gridToWorld(x: number, y: number, z: number) {
   const half = (CUBE_SIZE - 1) / 2
   return {
@@ -435,7 +476,7 @@ function directionOffset(direction: Direction) {
   }
 }
 
-function createLetterTexture(letter: string, direction: Direction, selected: boolean): THREE.CanvasTexture {
+function createLetterTexture(letter: string, direction: Direction, textureState: FaceTextureState): THREE.CanvasTexture {
   const canvas = document.createElement('canvas')
   canvas.width = 128
   canvas.height = 128
@@ -445,7 +486,7 @@ function createLetterTexture(letter: string, direction: Direction, selected: boo
     throw new Error('Unable to create canvas texture context')
   }
 
-  if (selected) {
+  if (textureState === 'selected') {
     context.fillStyle = '#ffe184'
     roundRect(context, 10, 10, 108, 108, 10)
     context.fill()
@@ -461,6 +502,17 @@ function createLetterTexture(letter: string, direction: Direction, selected: boo
     context.strokeStyle = '#31424f'
     context.lineWidth = 8
     context.strokeRect(4, 4, 120, 120)
+
+    if (textureState === 'legal') {
+      context.fillStyle = 'rgba(63, 116, 255, 0.12)'
+      roundRect(context, 12, 12, 104, 104, 10)
+      context.fill()
+
+      context.strokeStyle = '#3f74ff'
+      context.lineWidth = 5
+      roundRect(context, 12, 12, 104, 104, 10)
+      context.stroke()
+    }
   }
 
   context.fillStyle = '#16212a'

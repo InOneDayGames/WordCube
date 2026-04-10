@@ -1,7 +1,6 @@
 # TODO
 
 ## Next
-- Add a tutorial or clearer help text.
 - Add juice to gameplay, like blocks flying off, while keeping the overall feel Wordle-like.
 - Add more juice to the game-over screen.
 - Add sound/haptics settings, especially for mobile.
@@ -21,6 +20,7 @@
 - Performance pass for mobile GPUs and lower-end devices.
 
 ## Done
+- Add a tutorial or clearer help text.
 - Allow tapping an already selected face to rewind the path to that point.
 - Improve or finish gameplay affordances around legal words and minimum length.
 - Fix mobile usability: drag, aspect ratio, and layout.

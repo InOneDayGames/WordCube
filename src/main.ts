@@ -14,6 +14,7 @@ import { loadDictionary, loadPopularDictionary } from './dictionary'
 import { APP_VERSION } from './version'
 
 type GameOverReason = 'cleared' | 'no_more_words'
+type InteractionHintState = 'visible' | 'dismissing' | 'hidden'
 
 type AppState = {
   cube: CubeState
@@ -35,6 +36,8 @@ type AppState = {
   hintUsedThisRun: boolean
   historySheetOpen: boolean
   resolvingTurn: boolean
+  legalMoveHintFaces: string[]
+  interactionHintState: InteractionHintState
 }
 
 const CUBE_CLEAR_BONUS = 3
@@ -42,6 +45,8 @@ const GAME_OVER_OVERLAY_DELAY_BY_REASON: Record<GameOverReason, number> = {
   cleared: 1000,
   no_more_words: 1500,
 }
+const INTERACTION_HINT_DISMISS_DELAY_MS = 500
+const INTERACTION_HINT_FADE_MS = 900
 
 const app = document.querySelector<HTMLDivElement>('#app')
 
@@ -70,10 +75,13 @@ const state: AppState = {
   hintUsedThisRun: false,
   historySheetOpen: false,
   resolvingTurn: false,
+  legalMoveHintFaces: [],
+  interactionHintState: 'visible',
 }
 
 let cubeView: CubeView | null = null
 let gameOverRevealTimeoutId: number | null = null
+let interactionHintHideTimeoutId: number | null = null
 void loadCubeLetterFont()
 
 window.addEventListener('resize', handleViewportModeChange)
@@ -113,8 +121,8 @@ function renderShell() {
           </div>
           <div class="header-meta">
             <p class="build-version" aria-label="Build ${APP_VERSION}">Build ${APP_VERSION}</p>
-            <button class="debug-link" data-action="rapid-solve" ${controlsLocked() ? 'disabled' : ''}>
-              Rapid solve
+            <button class="debug-link" data-action="rapid-solve" aria-label="Rapid solve" title="Rapid solve" ${controlsLocked() ? 'disabled' : ''}>
+              ${renderActionIcon('rapid')}
             </button>
           </div>
         </div>
@@ -128,6 +136,7 @@ function renderShell() {
               <strong class="mobile-score-value">${state.score}</strong>
             </div>
             <div class="stage" data-stage></div>
+            ${renderInteractionHint()}
             ${renderGameOverOverlay()}
           </div>
           <div class="stage-controls">
@@ -206,6 +215,7 @@ function bindUi() {
     }
 
     state.selectedFaces = []
+    clearLegalMoveHints()
     state.status = 'Selection cleared.'
     renderShell()
     renderCube()
@@ -296,7 +306,13 @@ function renderCube() {
     cubeView.attachTo(stage)
   }
 
-  cubeView.setState(state.cube, state.selectedFaces, state.yawRadians, state.pitchRadians)
+  cubeView.setState(
+    state.cube,
+    state.selectedFaces,
+    state.yawRadians,
+    state.pitchRadians,
+    state.legalMoveHintFaces,
+  )
 }
 
 async function loadCubeLetterFont() {
@@ -352,6 +368,18 @@ function renderWordReadout(): string {
   `
 }
 
+function renderInteractionHint(): string {
+  if (state.loading || state.gameOverReason || state.interactionHintState === 'hidden') {
+    return ''
+  }
+
+  return `
+    <p class="interaction-hint is-${state.interactionHintState}" data-interaction-hint>
+      Tap letters. Make words. Drag to rotate.
+    </p>
+  `
+}
+
 
 function handleFaceSelect(faceKey: string) {
   if (controlsLocked()) {
@@ -363,6 +391,7 @@ function handleFaceSelect(faceKey: string) {
 
   if (existingIndex >= 0) {
     state.selectedFaces = state.selectedFaces.slice(0, existingIndex)
+    clearLegalMoveHints()
     state.status = 'Selection rewound.'
     updateSelectionUi()
     renderCube()
@@ -370,6 +399,12 @@ function handleFaceSelect(faceKey: string) {
   }
 
   if (!canAppendFace(state.selectedFaces, faceKey, faceMap, state.cube)) {
+    state.legalMoveHintFaces =
+      state.selectedFaces.length > 0
+        ? Array.from(faceMap.keys()).filter((candidateKey) =>
+            canAppendFace(state.selectedFaces, candidateKey, faceMap, state.cube),
+          )
+        : []
     state.status =
       state.selectedFaces.length === 0
         ? 'Face is not selectable.'
@@ -379,6 +414,7 @@ function handleFaceSelect(faceKey: string) {
   }
 
   state.selectedFaces = [...state.selectedFaces, faceKey]
+  clearLegalMoveHints()
   state.status = 'Face added.'
   updateSelectionUi()
   renderCube()
@@ -395,6 +431,7 @@ function submitSelection() {
 
   if (word.length < 4) {
     state.selectedFaces = []
+    clearLegalMoveHints()
     state.status = 'Words must be at least 4 letters.'
     renderShell()
     renderCube()
@@ -403,6 +440,7 @@ function submitSelection() {
 
   if (!state.dictionary.has(word)) {
     state.selectedFaces = []
+    clearLegalMoveHints()
     state.status = `${word} is not in the dictionary.`
     renderShell()
     renderCube()
@@ -417,8 +455,10 @@ function submitSelection() {
   }
 
   state.foundWords = [{ word, points }, ...state.foundWords]
+  scheduleInteractionHintDismissal()
   state.cube = removeSelectedBlocks(state.cube, state.selectedFaces, faceMap)
   state.selectedFaces = []
+  clearLegalMoveHints()
   state.resolvingTurn = true
   state.status =
     points === null
@@ -459,7 +499,7 @@ function scoreWord(word: string): number {
 
 function renderFoundWords(): string {
   if (state.foundWords.length === 0) {
-    return '<p class="history-empty">No words found yet.</p>'
+    return ''
   }
 
   return state.foundWords
@@ -490,7 +530,6 @@ function renderDesktopFoundWords(): string {
   }
 
   return `
-    ${state.foundWords.length === 0 ? '<div class="desktop-history-empty">No words found yet.</div>' : ''}
     <div class="desktop-history-scroll">
       ${rows.join('')}
     </div>
@@ -609,6 +648,43 @@ function selectionLocked(): boolean {
 
 function controlsLocked(): boolean {
   return state.loading || state.resolvingTurn || selectionLocked()
+}
+
+function clearLegalMoveHints(): boolean {
+  if (state.legalMoveHintFaces.length === 0) {
+    return false
+  }
+
+  state.legalMoveHintFaces = []
+  return true
+}
+
+function scheduleInteractionHintDismissal() {
+  if (state.interactionHintState !== 'visible') {
+    return
+  }
+
+  state.interactionHintState = 'dismissing'
+
+  if (interactionHintHideTimeoutId !== null) {
+    window.clearTimeout(interactionHintHideTimeoutId)
+  }
+
+  interactionHintHideTimeoutId = window.setTimeout(() => {
+    interactionHintHideTimeoutId = null
+    state.interactionHintState = 'hidden'
+    renderShell()
+    renderCube()
+  }, INTERACTION_HINT_DISMISS_DELAY_MS + INTERACTION_HINT_FADE_MS)
+}
+
+function resetInteractionHint() {
+  if (interactionHintHideTimeoutId !== null) {
+    window.clearTimeout(interactionHintHideTimeoutId)
+    interactionHintHideTimeoutId = null
+  }
+
+  state.interactionHintState = 'visible'
 }
 
 function clearPendingGameOverReveal() {
@@ -755,6 +831,7 @@ function rapidSolve() {
   }
 
   state.selectedFaces = []
+  clearLegalMoveHints()
 
   let safety = 0
 
@@ -797,8 +874,10 @@ function rapidSolve() {
 
 function replayGame() {
   clearPendingGameOverReveal()
+  resetInteractionHint()
   state.cube = createCubeState()
   state.selectedFaces = []
+  clearLegalMoveHints()
   state.score = 0
   state.foundWords = []
   state.scoreEvents = []
@@ -808,6 +887,7 @@ function replayGame() {
   state.hintUsedThisRun = false
   state.historySheetOpen = false
   state.resolvingTurn = false
+  state.legalMoveHintFaces = []
   state.status = 'Select adjacent visible faces that share an edge.'
   renderShell()
   renderCube()
@@ -831,6 +911,7 @@ function applyHint() {
   }
 
   state.selectedFaces = hint.faceKeys
+  clearLegalMoveHints()
   state.hintedWords.add(hint.word)
   state.hintUsedThisRun = true
   state.status = `Hint: ${hint.word}`

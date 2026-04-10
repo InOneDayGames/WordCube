@@ -147,7 +147,13 @@ p {
 }
 
 .debug-link {
-  border: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: 999px;
   background: transparent;
   padding: 0;
   color: var(--text-soft);
@@ -155,6 +161,11 @@ p {
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+
+.debug-link svg {
+  width: 16px;
+  height: 16px;
 }
 
 .debug-link:disabled {
@@ -217,6 +228,44 @@ p {
   display: grid;
   justify-items: center;
   gap: 10px;
+}
+
+.interaction-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 14px;
+  z-index: 2;
+  width: 100%;
+  margin: 0;
+  padding-inline: 16px;
+  font-size: clamp(0.62rem, 1.4vw, 0.76rem);
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: 0.12em;
+  text-wrap: balance;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--text-mid);
+  opacity: 1;
+  user-select: none;
+  pointer-events: none;
+}
+
+.interaction-hint.is-dismissing {
+  animation: interaction-hint-withdraw 900ms ease 500ms both;
+}
+
+@keyframes interaction-hint-withdraw {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(6px);
+  }
 }
 
 .word-readout {
@@ -671,21 +720,6 @@ p {
   overscroll-behavior: contain;
 }
 
-@media (min-width: 981px) {
-  .word-readout.is-empty::after {
-    content: '';
-    position: absolute;
-    top: 50%;
-    right: 24px;
-    width: 9px;
-    height: 9px;
-    border-right: 2px solid rgba(110, 124, 150, 0.75);
-    border-bottom: 2px solid rgba(110, 124, 150, 0.75);
-    transform: translateY(-65%) rotate(45deg);
-    pointer-events: none;
-  }
-}
-
 @media (max-width: 1180px) {
   .app-shell {
     width: min(1280px, calc(100% - 20px));
@@ -837,6 +871,12 @@ body.mode-tablet-landscape .history-card {
 body.mode-tablet-landscape .desktop-history-empty {
   min-height: 48px;
   font-size: 0.92rem;
+}
+
+body.mode-tablet-landscape .interaction-hint {
+  bottom: 12px;
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
 }
 
 @media (max-width: 980px) {
@@ -1379,6 +1419,11 @@ body.mode-tablet-portrait .stage-stack {
   margin-inline: auto;
 }
 
+body.mode-tablet-portrait .interaction-hint {
+  bottom: 14px;
+  font-size: 0.72rem;
+}
+
 body.mode-tablet-portrait .mobile-score-pill {
   top: 12px;
   right: 12px;
@@ -1417,6 +1462,10 @@ body.mode-tablet-portrait .controls-row {
 body.mode-tablet-portrait .action {
   min-height: 58px;
   font-size: 0.96rem;
+}
+
+body.mode-tablet-portrait .action.is-clear {
+  font-size: 2rem;
 }
 
 body.mode-tablet-portrait .mobile-history-preview {
@@ -1508,6 +1557,13 @@ body.mode-tablet-portrait .rapid-action {
   .stage-panel {
     padding: 8px;
     gap: 8px;
+  }
+
+  .interaction-hint {
+    bottom: 10px;
+    padding-inline: 12px;
+    font-size: 0.58rem;
+    letter-spacing: 0.08em;
   }
 
   .mobile-score-pill {
