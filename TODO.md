@@ -1,15 +1,15 @@
 # TODO
 
 ## Next
-- Add juice to gameplay, like blocks flying off, while keeping the overall feel Wordle-like.
+- Prune and improve dictionaries, possibly ranked by word popularity.
 - Add more juice to the game-over screen.
 - Add sound/haptics settings, especially for mobile.
 - Add a proper results/share screen for score, longest word, and daily challenge outcome.
-- Add a persistent seed/shareable game ID so the same puzzle can be replayed and debugged across devices.
 - Set up a daily challenge system.
 - Embed a 9-letter word in every cube.
 
 ## Backlog
+- Before public launch, decide whether to keep the tester two-hour cube refresh cadence or switch back to one cube per day.
 - Accessibility pass: contrast, focus states, reduced motion, readable status messaging.
 
 - Add onboarding-safe loading and error states.
@@ -19,7 +19,18 @@
 - Add basic automated test coverage for cube rules and word validation flow.
 - Performance pass for mobile GPUs and lower-end devices.
 
+## Feedback from users
+- Zoe found it too difficult at the start.
+- Jake was finding obscure words by selecting letters and looking for red highlighting.
+- Emma wanted longer words because they would feel more satisfying.
+- Emma misunderstood the goal and thought it was to clear the board as quickly as possible.
+
 ## Done
+- Store daily puzzle progress locally so refreshes resume the same day’s game.
+- Add an optional daily puzzle manifest override for future curation.
+- Add a persistent seed/shareable game ID so the same puzzle can be replayed and debugged across devices.
+- Test adding a fade as blocks shrink during the submit removal animation, and keep the cleaner whole-block shrink without fade.
+- Add restrained gameplay juice for submitted blocks.
 - Add a tutorial or clearer help text.
 - Allow tapping an already selected face to rewind the path to that point.
 - Improve or finish gameplay affordances around legal words and minimum length.

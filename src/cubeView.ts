@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { CUBE_SIZE, DIRECTIONS, createFaceKey, getExposedFaces, type Block, type CubeState, type Direction } from './cube'
 
 const CELL_SIZE = 1
+const BLOCK_BODY_SIZE = 0.995
 const FACE_SIZE = 1.01
 const SURFACE_OFFSET = 0.501
 const CUBE_RENDER_SCALE = 1
@@ -180,6 +181,8 @@ export class CubeView {
     for (const block of selectedBlocks) {
       const blockGroup = new THREE.Group()
       blockGroup.position.copy(gridToWorldVector(block.x, block.y, block.z))
+      blockGroup.add(createBlockBodyMesh())
+      blockGroup.add(createBlockEdgeMesh())
 
       for (const direction of DIRECTIONS) {
         if (hasSelectedNeighbor(block, direction, selectedBlocksByPosition, selectedBlockIds)) {
@@ -363,7 +366,7 @@ export class CubeView {
 
     this.cubeRoot.remove(this.extractionGroup)
     this.extractionGroup.traverse((object) => {
-      if (!(object instanceof THREE.Mesh)) {
+      if (!(object instanceof THREE.Mesh || object instanceof THREE.LineSegments)) {
         return
       }
 
@@ -727,6 +730,26 @@ function directionOffset(direction: Direction) {
     case 'nz':
       return { x: 0, y: 0, z: -1 }
   }
+}
+
+function createBlockBodyMesh(): THREE.Mesh {
+  const geometry = new THREE.BoxGeometry(BLOCK_BODY_SIZE, BLOCK_BODY_SIZE, BLOCK_BODY_SIZE)
+  const material = new THREE.MeshBasicMaterial({
+    color: '#dce6ef',
+    side: THREE.FrontSide,
+  })
+  return new THREE.Mesh(geometry, material)
+}
+
+function createBlockEdgeMesh(): THREE.LineSegments {
+  const boxGeometry = new THREE.BoxGeometry(BLOCK_BODY_SIZE + 0.006, BLOCK_BODY_SIZE + 0.006, BLOCK_BODY_SIZE + 0.006)
+  const geometry = new THREE.EdgesGeometry(boxGeometry)
+  boxGeometry.dispose()
+  const material = new THREE.LineBasicMaterial({
+    color: '#31424f',
+    linewidth: 1,
+  })
+  return new THREE.LineSegments(geometry, material)
 }
 
 function createLetterTexture(letter: string, direction: Direction, textureState: FaceTextureState): THREE.CanvasTexture {

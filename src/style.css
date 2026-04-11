@@ -105,6 +105,20 @@ p {
   flex: 0 0 auto;
 }
 
+.header-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.debug-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
 .title-lockup {
   display: flex;
   align-items: baseline;
@@ -130,7 +144,8 @@ p {
   letter-spacing: -0.02em;
 }
 
-.build-version {
+.build-version,
+.game-id {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -144,6 +159,12 @@ p {
   font-weight: 600;
   color: var(--text-mid);
   white-space: nowrap;
+}
+
+.game-id {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
 }
 
 .debug-link {
@@ -656,6 +677,15 @@ p {
   margin-top: 24px;
 }
 
+.game-over-daily-note {
+  margin-top: 24px;
+  font-size: 0.86rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-mid);
+}
+
 .history-sheet {
   position: fixed;
   inset: 0;
@@ -921,7 +951,8 @@ body.mode-tablet-landscape .interaction-hint {
     text-transform: uppercase;
   }
 
-  .build-version {
+  .build-version,
+  .game-id {
     min-height: 38px;
     padding: 0 12px;
     border-radius: 12px;
@@ -1269,7 +1300,8 @@ body.mode-tablet-landscape .interaction-hint {
     font-size: 0.88rem;
   }
 
-  .build-version {
+  .build-version,
+  .game-id {
     min-height: 42px;
     padding-inline: 14px;
     font-size: 0.78rem;
@@ -1400,7 +1432,8 @@ body.mode-tablet-portrait .byline {
   font-size: 0.88rem;
 }
 
-body.mode-tablet-portrait .build-version {
+body.mode-tablet-portrait .build-version,
+body.mode-tablet-portrait .game-id {
   min-height: 42px;
   padding-inline: 14px;
   font-size: 0.78rem;
@@ -1553,7 +1586,8 @@ body.mode-tablet-portrait .rapid-action {
     font-size: 0.74rem;
   }
 
-  .build-version {
+  .build-version,
+  .game-id {
     min-height: 34px;
     padding-inline: 10px;
     font-size: 0.66rem;

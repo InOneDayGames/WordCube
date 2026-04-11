@@ -4,6 +4,8 @@ import {
   canAppendFace,
   countRemainingBlocks,
   createCubeState,
+  createSeededRandom,
+  DIRECTIONS,
   getExposedFaces,
   removeSelectedBlocks,
   selectionToWord,
@@ -15,6 +17,32 @@ import { APP_VERSION } from './version'
 
 type GameOverReason = 'cleared' | 'no_more_words'
 type InteractionHintState = 'visible' | 'dismissing' | 'hidden'
+type GameIdentity = {
+  label: string
+  seed: number
+  dateKey: string | null
+}
+type DailyPuzzleManifestEntry = {
+  seed: number
+  label?: string
+}
+type DailyPuzzleManifest = {
+  puzzles: Map<string, DailyPuzzleManifestEntry>
+}
+type SavedDailyProgress = {
+  version: 1
+  seed: number
+  label: string
+  dateKey: string
+  cube: CubeState
+  score: number
+  foundWords: Array<{ word: string; points: number | null }>
+  scoreEvents: Array<{ label: string; points: number }>
+  hintedWords: string[]
+  hintUsedThisRun: boolean
+  gameOverReason: GameOverReason | null
+  interactionHintState: InteractionHintState
+}
 
 type AppState = {
   cube: CubeState
@@ -38,15 +66,374 @@ type AppState = {
   resolvingTurn: boolean
   legalMoveHintFaces: string[]
   interactionHintState: InteractionHintState
+  gameSeed: number
+  gameLabel: string
+  gameDateKey: string | null
 }
 
 const CUBE_CLEAR_BONUS = 3
+const LEGACY_GAME_ID_SEARCH_PARAM = 'seed'
+const GAME_ID_MAX_VALUE = 0xffffffff
+const DAILY_PUZZLE_MANIFEST_URL = `${import.meta.env.BASE_URL}daily-puzzles.json`
+const DAILY_PROGRESS_STORAGE_PREFIX = 'word-cube:daily-progress:v1'
+const DAILY_PUZZLE_TIME_ZONE = 'Europe/London'
+const DAILY_PUZZLE_VERSION = 1
+const DAILY_PUZZLE_REFRESH_INTERVAL_HOURS = 2
 const GAME_OVER_OVERLAY_DELAY_BY_REASON: Record<GameOverReason, number> = {
   cleared: 1000,
   no_more_words: 1500,
 }
+const DAILY_COUNTDOWN_REFRESH_MS = 250
 const INTERACTION_HINT_DISMISS_DELAY_MS = 500
 const INTERACTION_HINT_FADE_MS = 900
+
+function getInitialGameIdentity(): GameIdentity {
+  removeLegacyGameSeedFromUrl()
+  return createDailyGameIdentity(new Date())
+}
+
+function createCubeForSeed(seed: number): CubeState {
+  return createCubeState({
+    random: createSeededRandom(seed),
+  })
+}
+
+function createDailyGameIdentity(date: Date): GameIdentity {
+  const dateKey = getDailyDateKey(date)
+
+  return {
+    label: `Daily ${formatDailyDateLabel(dateKey)}`,
+    seed: hashStringToSeed(`word-cube:daily:v${DAILY_PUZZLE_VERSION}:${dateKey}`),
+    dateKey,
+  }
+}
+
+async function loadDailyPuzzleManifest(): Promise<DailyPuzzleManifest | null> {
+  try {
+    const response = await fetch(DAILY_PUZZLE_MANIFEST_URL, {
+      cache: 'no-cache',
+    })
+
+    if (!response.ok) {
+      return null
+    }
+
+    return parseDailyPuzzleManifest(await response.json())
+  } catch {
+    return null
+  }
+}
+
+function applyCuratedDailyPuzzle(manifest: DailyPuzzleManifest | null) {
+  if (!manifest || state.gameDateKey === null) {
+    return
+  }
+
+  const puzzle = manifest.puzzles.get(state.gameDateKey) ?? manifest.puzzles.get(state.gameDateKey.split('T')[0])
+
+  if (!puzzle) {
+    return
+  }
+
+  state.gameSeed = puzzle.seed
+  state.gameLabel = puzzle.label ?? `Daily ${formatDailyDateLabel(state.gameDateKey)}`
+  state.cube = createCubeForSeed(puzzle.seed)
+}
+
+function restoreDailyProgress() {
+  const savedProgress = readSavedDailyProgress()
+
+  if (!savedProgress) {
+    return
+  }
+
+  state.gameLabel = savedProgress.label
+  state.cube = savedProgress.cube
+  state.score = savedProgress.score
+  state.foundWords = savedProgress.foundWords
+  state.scoreEvents = savedProgress.scoreEvents
+  state.hintedWords = new Set(savedProgress.hintedWords)
+  state.hintUsedThisRun = savedProgress.hintUsedThisRun
+  state.gameOverReason = savedProgress.gameOverReason
+  state.pendingGameOverReason = null
+  state.interactionHintState = savedProgress.interactionHintState
+  state.selectedFaces = []
+  clearLegalMoveHints()
+}
+
+function saveDailyProgress() {
+  const storageKey = getDailyProgressStorageKey()
+  const dateKey = state.gameDateKey
+
+  if (!storageKey || !dateKey || state.loading) {
+    return
+  }
+
+  const progress: SavedDailyProgress = {
+    version: 1,
+    seed: state.gameSeed,
+    label: state.gameLabel,
+    dateKey,
+    cube: state.cube,
+    score: state.score,
+    foundWords: state.foundWords,
+    scoreEvents: state.scoreEvents,
+    hintedWords: Array.from(state.hintedWords),
+    hintUsedThisRun: state.hintUsedThisRun,
+    gameOverReason: state.gameOverReason,
+    interactionHintState: getSavedInteractionHintState(),
+  }
+
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(progress))
+  } catch {
+    // Local storage is a convenience; the daily puzzle should remain playable if it is unavailable.
+  }
+}
+
+function readSavedDailyProgress(): SavedDailyProgress | null {
+  const storageKey = getDailyProgressStorageKey()
+
+  if (!storageKey) {
+    return null
+  }
+
+  try {
+    const rawProgress = window.localStorage.getItem(storageKey)
+
+    if (!rawProgress) {
+      return null
+    }
+
+    return parseSavedDailyProgress(JSON.parse(rawProgress))
+  } catch {
+    return null
+  }
+}
+
+function parseSavedDailyProgress(value: unknown): SavedDailyProgress | null {
+  if (!isRecord(value) || value.version !== 1 || state.gameDateKey === null) {
+    return null
+  }
+
+  const seed = parseManifestSeed(value.seed)
+
+  if (seed !== state.gameSeed || value.dateKey !== state.gameDateKey || typeof value.label !== 'string') {
+    return null
+  }
+
+  if (!isCubeState(value.cube) || !isFoundWordList(value.foundWords) || !isScoreEventList(value.scoreEvents)) {
+    return null
+  }
+
+  if (
+    typeof value.score !== 'number' ||
+    !Number.isInteger(value.score) ||
+    value.score < 0 ||
+    !Array.isArray(value.hintedWords) ||
+    !value.hintedWords.every((word) => typeof word === 'string') ||
+    typeof value.hintUsedThisRun !== 'boolean' ||
+    !isGameOverReason(value.gameOverReason) ||
+    !isInteractionHintState(value.interactionHintState)
+  ) {
+    return null
+  }
+
+  return {
+    version: 1,
+    seed,
+    label: value.label,
+    dateKey: value.dateKey,
+    cube: value.cube,
+    score: value.score,
+    foundWords: value.foundWords,
+    scoreEvents: value.scoreEvents,
+    hintedWords: value.hintedWords,
+    hintUsedThisRun: value.hintUsedThisRun,
+    gameOverReason: value.gameOverReason,
+    interactionHintState: value.interactionHintState,
+  }
+}
+
+function getDailyProgressStorageKey(): string | null {
+  if (state.gameDateKey === null) {
+    return null
+  }
+
+  return `${DAILY_PROGRESS_STORAGE_PREFIX}:${state.gameDateKey}:${seedToGameId(state.gameSeed)}`
+}
+
+function getSavedInteractionHintState(): InteractionHintState {
+  if (state.foundWords.length > 0 || state.interactionHintState === 'dismissing') {
+    return 'hidden'
+  }
+
+  return state.interactionHintState
+}
+
+function isCubeState(value: unknown): value is CubeState {
+  if (!isRecord(value) || !Array.isArray(value.blocks)) {
+    return false
+  }
+
+  return value.blocks.every((block) => {
+    if (
+      !isRecord(block) ||
+      typeof block.id !== 'string' ||
+      typeof block.x !== 'number' ||
+      typeof block.y !== 'number' ||
+      typeof block.z !== 'number' ||
+      typeof block.removed !== 'boolean' ||
+      !isRecord(block.letters)
+    ) {
+      return false
+    }
+
+    const letters = block.letters
+
+    return DIRECTIONS.every((direction) => typeof letters[direction] === 'string')
+  })
+}
+
+function isFoundWordList(value: unknown): value is Array<{ word: string; points: number | null }> {
+  return Array.isArray(value) && value.every((entry) =>
+    isRecord(entry) &&
+    typeof entry.word === 'string' &&
+    (entry.points === null || (typeof entry.points === 'number' && Number.isInteger(entry.points))),
+  )
+}
+
+function isScoreEventList(value: unknown): value is Array<{ label: string; points: number }> {
+  return Array.isArray(value) && value.every((entry) =>
+    isRecord(entry) &&
+    typeof entry.label === 'string' &&
+    typeof entry.points === 'number' &&
+    Number.isInteger(entry.points),
+  )
+}
+
+function isGameOverReason(value: unknown): value is GameOverReason | null {
+  return value === null || value === 'cleared' || value === 'no_more_words'
+}
+
+function isInteractionHintState(value: unknown): value is InteractionHintState {
+  return value === 'visible' || value === 'dismissing' || value === 'hidden'
+}
+
+function parseDailyPuzzleManifest(value: unknown): DailyPuzzleManifest | null {
+  if (!isRecord(value) || !isRecord(value.puzzles)) {
+    return null
+  }
+
+  const puzzles = new Map<string, DailyPuzzleManifestEntry>()
+
+  Object.entries(value.puzzles).forEach(([dateKey, entry]) => {
+    if (!/^\d{4}-\d{2}-\d{2}(?:T\d{2})?$/.test(dateKey) || !isRecord(entry)) {
+      return
+    }
+
+    const seed = parseManifestSeed(entry.seed)
+
+    if (seed === null) {
+      return
+    }
+
+    puzzles.set(dateKey, {
+      seed,
+      label: typeof entry.label === 'string' && entry.label.trim().length > 0 ? entry.label.trim() : undefined,
+    })
+  })
+
+  return { puzzles }
+}
+
+function parseManifestSeed(value: unknown): number | null {
+  const seed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number.parseInt(value.trim().toUpperCase().replace(/[^0-9A-Z]/g, ''), 36)
+        : Number.NaN
+
+  if (!Number.isInteger(seed) || seed < 0 || seed > GAME_ID_MAX_VALUE) {
+    return null
+  }
+
+  return seed >>> 0
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function seedToGameId(seed: number): string {
+  return (seed >>> 0).toString(36).toUpperCase().padStart(7, '0')
+}
+
+function createRandomSeed(): number {
+  const seedValues = new Uint32Array(1)
+
+  if (globalThis.crypto) {
+    globalThis.crypto.getRandomValues(seedValues)
+    return seedValues[0]
+  }
+
+  return Math.floor(Math.random() * (GAME_ID_MAX_VALUE + 1))
+}
+
+function getDailyDateKey(date: Date): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: DAILY_PUZZLE_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date)
+  const year = parts.find((part) => part.type === 'year')?.value ?? '1970'
+  const month = parts.find((part) => part.type === 'month')?.value ?? '01'
+  const day = parts.find((part) => part.type === 'day')?.value ?? '01'
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? '0')
+  const slotHour = Math.floor(hour / DAILY_PUZZLE_REFRESH_INTERVAL_HOURS) * DAILY_PUZZLE_REFRESH_INTERVAL_HOURS
+
+  return `${year}-${month}-${day}T${String(slotHour).padStart(2, '0')}`
+}
+
+function formatDailyDateLabel(dateKey: string): string {
+  const [datePart, slotHour] = dateKey.split('T')
+  const [, month, day] = datePart.split('-')
+  const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  const monthIndex = Number(month) - 1
+  const dateLabel = `${Number(day)} ${monthLabels[monthIndex] ?? month}`
+
+  if (slotHour === undefined || DAILY_PUZZLE_REFRESH_INTERVAL_HOURS >= 24) {
+    return dateLabel
+  }
+
+  return `${dateLabel} ${slotHour}:00`
+}
+
+function hashStringToSeed(value: string): number {
+  let hash = 0x811c9dc5
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+
+  return hash >>> 0
+}
+
+function removeLegacyGameSeedFromUrl() {
+  const url = new URL(window.location.href)
+
+  if (!url.searchParams.has(LEGACY_GAME_ID_SEARCH_PARAM)) {
+    return
+  }
+
+  url.searchParams.delete(LEGACY_GAME_ID_SEARCH_PARAM)
+  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+}
 
 const app = document.querySelector<HTMLDivElement>('#app')
 
@@ -55,8 +442,9 @@ if (!app) {
 }
 
 const appRoot = app
+const initialGameIdentity = getInitialGameIdentity()
 const state: AppState = {
-  cube: createCubeState(),
+  cube: createCubeForSeed(initialGameIdentity.seed),
   selectedFaces: [],
   dictionary: null,
   popularDictionary: null,
@@ -77,11 +465,15 @@ const state: AppState = {
   resolvingTurn: false,
   legalMoveHintFaces: [],
   interactionHintState: 'visible',
+  gameSeed: initialGameIdentity.seed,
+  gameLabel: initialGameIdentity.label,
+  gameDateKey: initialGameIdentity.dateKey,
 }
 
 let cubeView: CubeView | null = null
 let gameOverRevealTimeoutId: number | null = null
 let interactionHintHideTimeoutId: number | null = null
+let dailyCountdownIntervalId: number | null = null
 void loadCubeLetterFont()
 
 window.addEventListener('resize', handleViewportModeChange)
@@ -91,14 +483,21 @@ void bootstrap()
 
 async function bootstrap() {
   try {
-    const [dictionary, popularDictionary] = await Promise.all([loadDictionary(), loadPopularDictionary()])
+    const [dictionary, popularDictionary, dailyPuzzleManifest] = await Promise.all([
+      loadDictionary(),
+      loadPopularDictionary(),
+      loadDailyPuzzleManifest(),
+    ])
     state.dictionary = dictionary
     state.popularDictionary = popularDictionary
     state.dictionaryPrefixes = buildPrefixes(state.dictionary)
     state.popularPrefixes = buildPrefixes(state.popularDictionary)
+    applyCuratedDailyPuzzle(dailyPuzzleManifest)
+    restoreDailyProgress()
     state.loading = false
     state.status = 'Select adjacent visible faces that share an edge.'
     updateGameOverState()
+    saveDailyProgress()
     renderShell()
     renderCube()
   } catch (error) {
@@ -120,10 +519,18 @@ function renderShell() {
             <span class="byline">by Tom Heaton</span>
           </div>
           <div class="header-meta">
-            <p class="build-version" aria-label="Build ${APP_VERSION}">Build ${APP_VERSION}</p>
-            <button class="debug-link" data-action="rapid-solve" aria-label="Rapid solve" title="Rapid solve" ${controlsLocked() ? 'disabled' : ''}>
-              ${renderActionIcon('rapid')}
-            </button>
+            <div class="header-badges">
+              <p class="build-version" aria-label="Build ${APP_VERSION}">Build ${APP_VERSION}</p>
+              <p class="game-id" aria-label="Puzzle ${state.gameLabel}">${state.gameLabel}</p>
+            </div>
+            <div class="debug-actions">
+              <button class="debug-link" data-action="rapid-solve" aria-label="Rapid solve" title="Rapid solve" ${controlsLocked() ? 'disabled' : ''}>
+                ${renderActionIcon('rapid')}
+              </button>
+              <button class="debug-link" data-action="random-cube" aria-label="Random test cube" title="Random test cube" ${debugCubeChangeLocked() ? 'disabled' : ''}>
+                ${renderActionIcon('random')}
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -190,6 +597,7 @@ function renderShell() {
 
   document.body.classList.toggle('history-sheet-open', state.historySheetOpen)
   bindUi()
+  syncDailyCountdownTimer()
 }
 
 function handleViewportModeChange() {
@@ -227,6 +635,10 @@ function bindUi() {
 
   bindButtons('[data-action="rapid-solve"]', () => {
     rapidSolve()
+  })
+
+  bindButtons('[data-action="random-cube"]', () => {
+    loadRandomTestCube()
   })
 
   bindButtons('[data-action="hint"]', () => {
@@ -621,12 +1033,21 @@ function renderHistorySheet(): string {
   `
 }
 
-function renderActionIcon(kind: 'hint' | 'rapid'): string {
+function renderActionIcon(kind: 'hint' | 'rapid' | 'random'): string {
   if (kind === 'hint') {
     return `
       <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
         <path d="M10 2.5a5.1 5.1 0 0 0-3.72 8.6c.62.66 1 1.42 1.13 2.27h5.18c.12-.85.5-1.61 1.12-2.27A5.1 5.1 0 0 0 10 2.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
         <path d="M7.9 15.15h4.2M8.4 17.2h3.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+      </svg>
+    `
+  }
+
+  if (kind === 'random') {
+    return `
+      <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <path d="M4 5.6h1.7c1.3 0 2.3.55 3.1 1.66l2.4 3.46c.8 1.1 1.84 1.66 3.1 1.66H16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+        <path d="m14.15 10.5 2.2 1.88-2.2 1.88M4 14.4h1.7c.92 0 1.72-.3 2.4-.9M11.64 6.56c.72-.64 1.6-.96 2.66-.96H16M14.15 3.72l2.2 1.88-2.2 1.88" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
     `
   }
@@ -656,6 +1077,10 @@ function selectionLocked(): boolean {
 
 function controlsLocked(): boolean {
   return state.loading || state.resolvingTurn || selectionLocked()
+}
+
+function debugCubeChangeLocked(): boolean {
+  return state.loading || state.resolvingTurn
 }
 
 function clearLegalMoveHints(): boolean {
@@ -719,6 +1144,7 @@ function updateGameOverState(options: { delayOverlay?: boolean } = {}) {
   if (!nextReason) {
     clearPendingGameOverReveal()
     state.gameOverReason = null
+    saveDailyProgress()
     return
   }
 
@@ -727,18 +1153,21 @@ function updateGameOverState(options: { delayOverlay?: boolean } = {}) {
   if (!delayOverlay) {
     clearPendingGameOverReveal()
     state.gameOverReason = nextReason
+    saveDailyProgress()
     return
   }
 
   clearPendingGameOverReveal()
   state.gameOverReason = null
   state.pendingGameOverReason = nextReason
+  saveDailyProgress()
   gameOverRevealTimeoutId = window.setTimeout(() => {
-    state.pendingGameOverReason = null
-    state.gameOverReason = nextReason
-    gameOverRevealTimeoutId = null
-    renderShell()
-    renderCube()
+      state.pendingGameOverReason = null
+      state.gameOverReason = nextReason
+      gameOverRevealTimeoutId = null
+      saveDailyProgress()
+      renderShell()
+      renderCube()
   }, GAME_OVER_OVERLAY_DELAY_BY_REASON[nextReason])
 }
 
@@ -794,6 +1223,10 @@ function renderGameOverOverlay(): string {
   }
 
   const longestWord = getLongestFoundWord()
+  const gameOverAction =
+    state.gameDateKey === null
+      ? '<button class="action game-over-action" data-action="replay">Replay</button>'
+      : `<p class="game-over-daily-note" data-daily-countdown>${renderDailyCountdownText()}</p>`
 
   return `
     <div class="game-over-overlay">
@@ -802,10 +1235,91 @@ function renderGameOverOverlay(): string {
         <p class="game-over-reason">${state.gameOverReason === 'cleared' ? 'CUBE CLEARED' : 'NO MORE WORDS'}</p>
         <p class="game-over-stat"><span>Score</span><strong>${state.score}</strong></p>
         <p class="game-over-stat"><span>Longest word</span><strong>${longestWord ?? 'None'}</strong></p>
-        <button class="action game-over-action" data-action="replay">Replay</button>
+        ${gameOverAction}
       </div>
     </div>
   `
+}
+
+function renderDailyCountdownText(): string {
+  const remainingMilliseconds = getMillisecondsUntilNextDailyCube()
+
+  if (remainingMilliseconds <= 0) {
+    return 'New cube available'
+  }
+
+  return `New cube in ${formatCountdownDuration(remainingMilliseconds)}`
+}
+
+function syncDailyCountdownTimer() {
+  const countdown = appRoot.querySelector<HTMLElement>('[data-daily-countdown]')
+
+  if (!countdown) {
+    stopDailyCountdownTimer()
+    return
+  }
+
+  countdown.textContent = renderDailyCountdownText()
+
+  if (dailyCountdownIntervalId !== null) {
+    return
+  }
+
+  dailyCountdownIntervalId = window.setInterval(() => {
+    const activeCountdown = appRoot.querySelector<HTMLElement>('[data-daily-countdown]')
+
+    if (!activeCountdown) {
+      stopDailyCountdownTimer()
+      return
+    }
+
+    activeCountdown.textContent = renderDailyCountdownText()
+  }, DAILY_COUNTDOWN_REFRESH_MS)
+}
+
+function stopDailyCountdownTimer() {
+  if (dailyCountdownIntervalId === null) {
+    return
+  }
+
+  window.clearInterval(dailyCountdownIntervalId)
+  dailyCountdownIntervalId = null
+}
+
+function getMillisecondsUntilNextDailyCube(now = new Date()): number {
+  const currentDateKey = getDailyDateKey(now)
+
+  if (state.gameDateKey !== null && currentDateKey > state.gameDateKey) {
+    return 0
+  }
+
+  let low = now.getTime()
+  let high = low + 48 * 60 * 60 * 1000
+
+  while (getDailyDateKey(new Date(high)) === currentDateKey) {
+    high += 24 * 60 * 60 * 1000
+  }
+
+  while (high - low > 1000) {
+    const mid = Math.floor((low + high) / 2)
+
+    if (getDailyDateKey(new Date(mid)) === currentDateKey) {
+      low = mid
+    } else {
+      high = mid
+    }
+  }
+
+  return Math.max(0, high - now.getTime())
+}
+
+function formatCountdownDuration(milliseconds: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+
+  return [hours, minutes, seconds].map((value) => String(value).padStart(2, '0')).join(':')
 }
 
 function getLongestFoundWord(): string | null {
@@ -881,9 +1395,29 @@ function rapidSolve() {
 }
 
 function replayGame() {
+  if (state.gameDateKey !== null) {
+    return
+  }
+
+  resetGameForSeed(state.gameSeed, state.gameLabel, state.gameDateKey, 'Select adjacent visible faces that share an edge.')
+}
+
+function loadRandomTestCube() {
+  if (debugCubeChangeLocked()) {
+    return
+  }
+
+  const seed = createRandomSeed()
+  resetGameForSeed(seed, `Test ${seedToGameId(seed)}`, null, 'Random test cube loaded.')
+}
+
+function resetGameForSeed(seed: number, label: string, dateKey: string | null, status: string) {
   clearPendingGameOverReveal()
   resetInteractionHint()
-  state.cube = createCubeState()
+  state.gameSeed = seed
+  state.gameLabel = label
+  state.gameDateKey = dateKey
+  state.cube = createCubeForSeed(seed)
   state.selectedFaces = []
   clearLegalMoveHints()
   state.score = 0
@@ -896,7 +1430,8 @@ function replayGame() {
   state.historySheetOpen = false
   state.resolvingTurn = false
   state.legalMoveHintFaces = []
-  state.status = 'Select adjacent visible faces that share an edge.'
+  state.status = status
+  saveDailyProgress()
   renderShell()
   renderCube()
 }
@@ -913,6 +1448,7 @@ function applyHint() {
   if (!hint) {
     updateGameOverState()
     state.status = 'No hint available.'
+    saveDailyProgress()
     renderShell()
     renderCube()
     return
@@ -923,6 +1459,7 @@ function applyHint() {
   state.hintedWords.add(hint.word)
   state.hintUsedThisRun = true
   state.status = `Hint: ${hint.word}`
+  saveDailyProgress()
   renderShell()
   renderCube()
 }
