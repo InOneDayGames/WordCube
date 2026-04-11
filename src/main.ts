@@ -69,6 +69,7 @@ type AppState = {
   gameSeed: number
   gameLabel: string
   gameDateKey: string | null
+  shareStatus: string | null
 }
 
 const CUBE_CLEAR_BONUS = 3
@@ -84,6 +85,8 @@ const GAME_OVER_OVERLAY_DELAY_BY_REASON: Record<GameOverReason, number> = {
   no_more_words: 1500,
 }
 const DAILY_COUNTDOWN_REFRESH_MS = 250
+const SHARE_IMAGE_WIDTH = 1080
+const SHARE_IMAGE_HEIGHT = 1350
 const INTERACTION_HINT_DISMISS_DELAY_MS = 500
 const INTERACTION_HINT_FADE_MS = 900
 
@@ -102,7 +105,7 @@ function createDailyGameIdentity(date: Date): GameIdentity {
   const dateKey = getDailyDateKey(date)
 
   return {
-    label: `Daily ${formatDailyDateLabel(dateKey)}`,
+    label: formatDailyDateLabel(dateKey),
     seed: hashStringToSeed(`word-cube:daily:v${DAILY_PUZZLE_VERSION}:${dateKey}`),
     dateKey,
   }
@@ -136,7 +139,7 @@ function applyCuratedDailyPuzzle(manifest: DailyPuzzleManifest | null) {
   }
 
   state.gameSeed = puzzle.seed
-  state.gameLabel = puzzle.label ?? `Daily ${formatDailyDateLabel(state.gameDateKey)}`
+  state.gameLabel = puzzle.label ?? formatDailyDateLabel(state.gameDateKey)
   state.cube = createCubeForSeed(puzzle.seed)
 }
 
@@ -147,7 +150,6 @@ function restoreDailyProgress() {
     return
   }
 
-  state.gameLabel = savedProgress.label
   state.cube = savedProgress.cube
   state.score = savedProgress.score
   state.foundWords = savedProgress.foundWords
@@ -401,16 +403,16 @@ function getDailyDateKey(date: Date): string {
 
 function formatDailyDateLabel(dateKey: string): string {
   const [datePart, slotHour] = dateKey.split('T')
-  const [, month, day] = datePart.split('-')
+  const [year, month, day] = datePart.split('-')
   const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   const monthIndex = Number(month) - 1
-  const dateLabel = `${Number(day)} ${monthLabels[monthIndex] ?? month}`
+  const dateLabel = `${Number(day)} ${monthLabels[monthIndex] ?? month} ${year.slice(-2)}`
 
   if (slotHour === undefined || DAILY_PUZZLE_REFRESH_INTERVAL_HOURS >= 24) {
     return dateLabel
   }
 
-  return `${dateLabel} ${slotHour}:00`
+  return `${dateLabel}, ${slotHour}:00`
 }
 
 function hashStringToSeed(value: string): number {
@@ -468,6 +470,7 @@ const state: AppState = {
   gameSeed: initialGameIdentity.seed,
   gameLabel: initialGameIdentity.label,
   gameDateKey: initialGameIdentity.dateKey,
+  shareStatus: null,
 }
 
 let cubeView: CubeView | null = null
@@ -647,6 +650,10 @@ function bindUi() {
 
   bindButtons('[data-action="replay"]', () => {
     replayGame()
+  })
+
+  bindButtons('[data-action="share-results"]', () => {
+    void shareResults()
   })
 
   bindButtons('[data-action="open-history"]', () => {
@@ -1223,22 +1230,366 @@ function renderGameOverOverlay(): string {
   }
 
   const longestWord = getLongestFoundWord()
+  const visibleLongestWord = longestWord ?? 'None'
   const gameOverAction =
     state.gameDateKey === null
       ? '<button class="action game-over-action" data-action="replay">Replay</button>'
-      : `<p class="game-over-daily-note" data-daily-countdown>${renderDailyCountdownText()}</p>`
+      : ''
 
   return `
     <div class="game-over-overlay">
-      <div class="game-over-card">
-        <p class="game-over-title">GAME OVER</p>
-        <p class="game-over-reason">${state.gameOverReason === 'cleared' ? 'CUBE CLEARED' : 'NO MORE WORDS'}</p>
-        <p class="game-over-stat"><span>Score</span><strong>${state.score}</strong></p>
-        <p class="game-over-stat"><span>Longest word</span><strong>${longestWord ?? 'None'}</strong></p>
-        ${gameOverAction}
+      <div class="game-over-results-stack">
+        <section class="game-over-card" aria-label="Word Cube results">
+          <p class="game-over-title">WORD CUBE</p>
+          <p class="game-over-reason">${state.gameLabel}</p>
+          <div class="game-over-stats-grid">
+            <p class="game-over-stat"><span>Score</span><strong>${state.score}</strong></p>
+            <p class="game-over-stat"><span>Words</span><strong>${state.foundWords.length}</strong></p>
+          </div>
+          <p class="game-over-stat game-over-longest"><span>Longest</span><strong>${visibleLongestWord}</strong></p>
+          <button class="action game-over-action" data-action="share-results">${state.shareStatus ?? 'Share'}</button>
+          ${gameOverAction}
+        </section>
+
+        ${
+          state.gameDateKey === null
+            ? ''
+            : `
+              <section class="game-over-countdown-panel" aria-label="Next cube">
+                <p data-daily-countdown>${renderDailyCountdownText()}</p>
+              </section>
+            `
+        }
       </div>
     </div>
   `
+}
+
+async function shareResults() {
+  if (!state.gameOverReason) {
+    return
+  }
+
+  const shareText = createResultsShareText()
+  const shareUrl = getShareUrl()
+  const imageBlob = await createResultsShareImageBlob()
+  const imageFile = new File([imageBlob], 'word-cube-results.png', { type: imageBlob.type })
+  const shareNavigator = navigator as Navigator & {
+    canShare?: (data: ShareData) => boolean
+    share?: (data: ShareData) => Promise<void>
+  }
+
+  if (typeof shareNavigator.share === 'function' && shouldUseNativeShare()) {
+    const imageShareData: ShareData = {
+      title: 'Word Cube',
+      text: shareText,
+      url: shareUrl,
+      files: [imageFile],
+    }
+
+    try {
+      if (!shareNavigator.canShare || shareNavigator.canShare(imageShareData)) {
+        await shareNavigator.share(imageShareData)
+        state.shareStatus = 'Shared'
+        renderShell()
+        renderCube()
+        return
+      }
+
+      await shareNavigator.share({
+        title: 'Word Cube',
+        text: shareText,
+        url: shareUrl,
+      })
+      state.shareStatus = 'Shared'
+      renderShell()
+      renderCube()
+      return
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return
+      }
+    }
+  }
+
+  if (await copyImageToClipboard(imageBlob)) {
+    state.shareStatus = 'Copied to Clipboard'
+  } else if (navigator.clipboard) {
+    await navigator.clipboard.writeText(`${shareText}\n\nWord Cube\n${shareUrl}`)
+    state.shareStatus = 'Copied to Clipboard'
+  } else {
+    downloadShareImage(imageBlob)
+    state.shareStatus = 'Downloaded image'
+  }
+
+
+  renderShell()
+  renderCube()
+}
+
+async function copyImageToClipboard(imageBlob: Blob): Promise<boolean> {
+  if (!navigator.clipboard || !('write' in navigator.clipboard) || typeof ClipboardItem === 'undefined') {
+    return false
+  }
+
+  try {
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        [imageBlob.type]: imageBlob,
+      }),
+    ])
+    return true
+  } catch {
+    return false
+  }
+}
+
+function downloadShareImage(imageBlob: Blob) {
+  const downloadUrl = URL.createObjectURL(imageBlob)
+  const link = document.createElement('a')
+  link.href = downloadUrl
+  link.download = 'word-cube-results.png'
+  link.click()
+  URL.revokeObjectURL(downloadUrl)
+}
+
+async function createResultsShareImageBlob(): Promise<Blob> {
+  if ('fonts' in document) {
+    await document.fonts.ready
+  }
+
+  const canvas = document.createElement('canvas')
+  canvas.width = SHARE_IMAGE_WIDTH
+  canvas.height = SHARE_IMAGE_HEIGHT
+  const context = canvas.getContext('2d')
+
+  if (!context) {
+    throw new Error('Unable to create share image context')
+  }
+
+  const maskedLongestWord = maskWord(getLongestFoundWord())
+  const backgroundGradient = context.createLinearGradient(0, 0, SHARE_IMAGE_WIDTH, SHARE_IMAGE_HEIGHT)
+  backgroundGradient.addColorStop(0, '#eef5ff')
+  backgroundGradient.addColorStop(0.55, '#f8fbff')
+  backgroundGradient.addColorStop(1, '#e4edf9')
+
+  context.fillStyle = backgroundGradient
+  context.fillRect(0, 0, SHARE_IMAGE_WIDTH, SHARE_IMAGE_HEIGHT)
+  drawShareGlow(context, 180, 150, 300, 'rgba(63, 116, 255, 0.16)')
+  drawShareGlow(context, 880, 1120, 380, 'rgba(245, 218, 112, 0.18)')
+
+  context.save()
+  context.shadowColor = 'rgba(23, 39, 72, 0.16)'
+  context.shadowBlur = 48
+  context.shadowOffsetY = 28
+  fillRoundedRect(context, 82, 112, 916, 1076, 64, 'rgba(255, 255, 255, 0.94)')
+  context.restore()
+  strokeRoundedRect(context, 82, 112, 916, 1076, 64, 'rgba(113, 135, 171, 0.28)', 3)
+
+  drawTrackedText(context, 'WORD CUBE', SHARE_IMAGE_WIDTH / 2, 240, 72, 7, '#13203b', 'center')
+
+  context.font = "700 34px Manrope, 'Segoe UI', sans-serif"
+  context.fillStyle = '#70809b'
+  context.textAlign = 'center'
+  context.textBaseline = 'middle'
+  context.fillText(state.gameLabel, SHARE_IMAGE_WIDTH / 2, 310)
+
+  fillRoundedRect(context, 166, 410, 340, 244, 42, '#f8fbff')
+  fillRoundedRect(context, 574, 410, 340, 244, 42, '#f8fbff')
+  strokeRoundedRect(context, 166, 410, 340, 244, 42, 'rgba(138, 157, 189, 0.24)', 2)
+  strokeRoundedRect(context, 574, 410, 340, 244, 42, 'rgba(138, 157, 189, 0.24)', 2)
+  drawShareStat(context, 'Score', String(state.score), 336, 530, 86)
+  drawShareStat(context, 'Words', String(state.foundWords.length), 744, 530, 86)
+
+  fillRoundedRect(context, 166, 718, 748, 220, 42, '#f8fbff')
+  strokeRoundedRect(context, 166, 718, 748, 220, 42, 'rgba(138, 157, 189, 0.24)', 2)
+  drawShareStat(context, 'Longest', maskedLongestWord, SHARE_IMAGE_WIDTH / 2, 832, getShareLongestFontSize(maskedLongestWord))
+
+  context.font = "700 27px Manrope, 'Segoe UI', sans-serif"
+  context.fillStyle = '#70809b'
+  context.textAlign = 'center'
+  context.textBaseline = 'middle'
+  context.fillText('inonedaygames.github.io/WordCube', SHARE_IMAGE_WIDTH / 2, 1072)
+
+  return canvasToPngBlob(canvas)
+}
+
+function drawShareStat(
+  context: CanvasRenderingContext2D,
+  label: string,
+  value: string,
+  x: number,
+  valueBaseline: number,
+  valueFontSize: number,
+) {
+  drawTrackedText(context, label.toUpperCase(), x, valueBaseline - valueFontSize / 2 - 38, 25, 4, '#6b7a95', 'center')
+  context.font = `800 ${valueFontSize}px Manrope, 'Segoe UI', sans-serif`
+  context.fillStyle = '#14213b'
+  context.textAlign = 'center'
+  context.textBaseline = 'middle'
+  context.fillText(value, x, valueBaseline)
+}
+
+function getShareLongestFontSize(maskedLongestWord: string): number {
+  if (maskedLongestWord.length > 12) {
+    return 50
+  }
+
+  if (maskedLongestWord.length > 9) {
+    return 62
+  }
+
+  return 76
+}
+
+function drawShareGlow(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  color: string,
+) {
+  const gradient = context.createRadialGradient(x, y, 0, x, y, radius)
+  gradient.addColorStop(0, color)
+  gradient.addColorStop(1, 'rgba(255, 255, 255, 0)')
+  context.fillStyle = gradient
+  context.beginPath()
+  context.arc(x, y, radius, 0, Math.PI * 2)
+  context.fill()
+}
+
+function drawTrackedText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  fontSize: number,
+  tracking: number,
+  color: string,
+  align: CanvasTextAlign,
+) {
+  context.font = `800 ${fontSize}px Manrope, 'Segoe UI', sans-serif`
+  context.fillStyle = color
+  context.textBaseline = 'middle'
+
+  const widths = text.split('').map((character) => context.measureText(character).width)
+  const textWidth = widths.reduce((sum, width) => sum + width, 0) + tracking * Math.max(0, text.length - 1)
+  let cursor = align === 'center' ? x - textWidth / 2 : x
+
+  context.textAlign = 'left'
+  text.split('').forEach((character, index) => {
+    context.fillText(character, cursor, y)
+    cursor += widths[index] + tracking
+  })
+}
+
+function fillRoundedRect(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+  fillStyle: string | CanvasGradient,
+) {
+  addRoundedRectPath(context, x, y, width, height, radius)
+  context.fillStyle = fillStyle
+  context.fill()
+}
+
+function strokeRoundedRect(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+  strokeStyle: string,
+  lineWidth: number,
+) {
+  addRoundedRectPath(context, x, y, width, height, radius)
+  context.strokeStyle = strokeStyle
+  context.lineWidth = lineWidth
+  context.stroke()
+}
+
+function addRoundedRectPath(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+) {
+  const constrainedRadius = Math.min(radius, width / 2, height / 2)
+  context.beginPath()
+  context.moveTo(x + constrainedRadius, y)
+  context.lineTo(x + width - constrainedRadius, y)
+  context.quadraticCurveTo(x + width, y, x + width, y + constrainedRadius)
+  context.lineTo(x + width, y + height - constrainedRadius)
+  context.quadraticCurveTo(x + width, y + height, x + width - constrainedRadius, y + height)
+  context.lineTo(x + constrainedRadius, y + height)
+  context.quadraticCurveTo(x, y + height, x, y + height - constrainedRadius)
+  context.lineTo(x, y + constrainedRadius)
+  context.quadraticCurveTo(x, y, x + constrainedRadius, y)
+  context.closePath()
+}
+
+function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob)
+        return
+      }
+
+      reject(new Error('Unable to create share image'))
+    }, 'image/png')
+  })
+}
+
+function shouldUseNativeShare(): boolean {
+  const navigatorWithUserAgentData = navigator as Navigator & { userAgentData?: { mobile?: boolean } }
+
+  if (navigatorWithUserAgentData.userAgentData?.mobile) {
+    return true
+  }
+
+  return window.matchMedia('(pointer: coarse)').matches && window.innerWidth <= 1200
+}
+
+function createResultsShareText(): string {
+  const longestWord = maskWord(getLongestFoundWord())
+
+  return [
+    'WORD CUBE',
+    state.gameLabel,
+    '',
+    `Score: ${state.score}`,
+    `Words: ${state.foundWords.length}`,
+    `Longest: ${longestWord}`,
+  ].join('\n')
+}
+
+function getShareUrl(): string {
+  const url = new URL(import.meta.env.BASE_URL, window.location.href)
+  url.search = ''
+  url.hash = ''
+  return url.href
+}
+
+function maskWord(word: string | null): string {
+  if (!word) {
+    return 'None'
+  }
+
+  const letters = word.toUpperCase().split('')
+  const revealIndexes =
+    letters.length >= 8
+      ? new Set([Math.floor(letters.length / 3), Math.floor((letters.length * 2) / 3)])
+      : new Set([Math.floor(letters.length / 2)])
+
+  return letters.map((letter, index) => (revealIndexes.has(index) ? letter : '*')).join('')
 }
 
 function renderDailyCountdownText(): string {
@@ -1430,6 +1781,7 @@ function resetGameForSeed(seed: number, label: string, dateKey: string | null, s
   state.historySheetOpen = false
   state.resolvingTurn = false
   state.legalMoveHintFaces = []
+  state.shareStatus = null
   state.status = status
   saveDailyProgress()
   renderShell()

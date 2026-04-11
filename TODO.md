@@ -4,7 +4,6 @@
 - Prune and improve dictionaries, possibly ranked by word popularity.
 - Add more juice to the game-over screen.
 - Add sound/haptics settings, especially for mobile.
-- Add a proper results/share screen for score, longest word, and daily challenge outcome.
 - Set up a daily challenge system.
 - Embed a 9-letter word in every cube.
 
@@ -26,6 +25,7 @@
 - Emma misunderstood the goal and thought it was to clear the board as quickly as possible.
 
 ## Done
+- Add a results/share screen for score, masked longest word, outcome, and next-cube countdown.
 - Store daily puzzle progress locally so refreshes resume the same day’s game.
 - Add an optional daily puzzle manifest override for future curation.
 - Add a persistent seed/shareable game ID so the same puzzle can be replayed and debugged across devices.

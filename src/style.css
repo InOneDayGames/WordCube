@@ -633,9 +633,36 @@ p {
   backdrop-filter: blur(3px);
 }
 
-.game-over-card {
+.game-over-results-stack {
+  display: grid;
+  gap: 12px;
   width: min(100%, 520px);
-  padding: 34px 36px 32px;
+}
+
+.game-over-countdown-panel {
+  border: 1px solid var(--panel-border-strong);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 16px 36px rgba(23, 39, 72, 0.1);
+  text-align: center;
+}
+
+.game-over-countdown-panel p {
+  font-size: 0.88rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-mid);
+}
+
+.game-over-countdown-panel {
+  padding: 14px 18px;
+  background: rgba(246, 249, 254, 0.92);
+}
+
+.game-over-card {
+  width: 100%;
+  padding: 28px 34px 30px;
   border: 1px solid var(--panel-border-strong);
   border-radius: 28px;
   background: rgba(255, 255, 255, 0.96);
@@ -652,19 +679,25 @@ p {
 }
 
 .game-over-reason {
-  margin-top: 18px;
+  margin-top: 12px;
   font-size: 0.95rem;
   color: #7d6945;
 }
 
+.game-over-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
 .game-over-stat {
-  margin-top: 20px;
   display: grid;
   gap: 2px;
 }
 
 .game-over-stat strong {
-  font-size: clamp(2rem, 3vw, 3rem);
+  font-size: clamp(1.9rem, 3vw, 2.9rem);
   line-height: 0.95;
   font-weight: 800;
   letter-spacing: -0.06em;
@@ -672,18 +705,23 @@ p {
   color: #14213b;
 }
 
-.game-over-action {
-  width: 100%;
-  margin-top: 24px;
+.game-over-longest {
+  margin-top: 18px;
+  padding: 16px 18px;
+  border: 1px solid var(--line-soft);
+  border-radius: 18px;
+  background: rgba(248, 251, 255, 0.9);
 }
 
-.game-over-daily-note {
-  margin-top: 24px;
-  font-size: 0.86rem;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--text-mid);
+.game-over-longest strong {
+  overflow-wrap: anywhere;
+  font-size: clamp(1.55rem, 2.5vw, 2.35rem);
+  letter-spacing: 0.02em;
+}
+
+.game-over-action {
+  width: 100%;
+  margin-top: 18px;
 }
 
 .history-sheet {
@@ -1141,9 +1179,22 @@ body.mode-tablet-landscape .interaction-hint {
   }
 
   .game-over-card {
-    width: min(100%, 320px);
     padding: 20px 18px;
     border-radius: 22px;
+  }
+
+  .game-over-results-stack {
+    width: min(100%, 320px);
+    gap: 8px;
+  }
+
+  .game-over-countdown-panel {
+    padding: 10px 14px;
+    border-radius: 18px;
+  }
+
+  .game-over-countdown-panel p {
+    font-size: 0.68rem;
   }
 
   .game-over-title {
@@ -1156,17 +1207,31 @@ body.mode-tablet-landscape .interaction-hint {
   }
 
   .game-over-stat {
-    margin-top: 12px;
     gap: 4px;
   }
 
+  .game-over-stats-grid {
+    gap: 8px;
+    margin-top: 14px;
+  }
+
   .game-over-stat strong {
-    font-size: 1.9rem;
+    font-size: 1.5rem;
+  }
+
+  .game-over-longest {
+    margin-top: 12px;
+    padding: 12px 14px;
+  }
+
+  .game-over-longest strong {
+    font-size: 1.28rem;
   }
 
   .game-over-action {
     margin-top: 14px;
   }
+
 }
 
 @media (min-width: 641px) and (max-width: 980px) {
