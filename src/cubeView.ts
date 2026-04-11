@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { CUBE_SIZE, createFaceKey, getExposedFaces, type CubeState, type Direction } from './cube'
+import { CUBE_SIZE, DIRECTIONS, createFaceKey, getExposedFaces, type Block, type CubeState, type Direction } from './cube'
 
 const CELL_SIZE = 1
 const FACE_SIZE = 1.01
@@ -11,6 +11,11 @@ const DRAG_RADIANS_PER_PIXEL = 0.006
 const MAX_PITCH_RADIANS = Math.PI / 4
 const DEFAULT_CAMERA_RADIUS = 12
 const COMPACT_CAMERA_RADIUS = 10
+const BLOCK_EXTRACTION_MOVE_MS = 80
+const BLOCK_EXTRACTION_HOLD_MS = 80
+const BLOCK_EXTRACTION_DISTANCE = 0.17
+const BLOCK_EXTRACTION_STAGGER_MS = 70
+const BLOCK_EXTRACTION_SHRINK_MS = 180
 export const CUBE_LETTER_FONT_FAMILY = '"Libre Baskerville"'
 type FaceTextureState = 'normal' | 'selected' | 'legal'
 
@@ -39,6 +44,11 @@ export class CubeView {
   private pointerStartY: number | null = null
   private activePointerId: number | null = null
   private dragActive = false
+  private removalAnimationFrameId: number | null = null
+  private removalHoldTimeoutId: number | null = null
+  private removalStaggerTimeoutIds: number[] = []
+  private extractionGroup: THREE.Group | null = null
+  private extractionVector = new THREE.Vector3(0, 1, 0)
 
   constructor(
     container: HTMLElement,
@@ -119,6 +129,8 @@ export class CubeView {
     this.renderer.domElement.removeEventListener('pointerup', this.handlePointerUp)
     this.renderer.domElement.removeEventListener('pointercancel', this.handlePointerCancel)
     this.resizeObserver.disconnect()
+    this.cancelRemovalAnimation()
+    this.disposeExtractionGroup()
     this.textureCache.forEach((texture) => texture.dispose())
     this.textureCache.clear()
     this.renderer.dispose()
@@ -141,6 +153,121 @@ export class CubeView {
     this.render()
   }
 
+  prepareBlockExtraction(faceKeys: string[]): boolean {
+    if (!this.currentCube || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      return false
+    }
+
+    const targetBlockIds = new Set(
+      faceKeys
+        .map((faceKey) => this.faceMeshByKey.get(faceKey)?.userData.blockId as string | undefined)
+        .filter((blockId): blockId is string => Boolean(blockId)),
+    )
+    const selectedBlocks = this.currentCube.blocks.filter((block) => !block.removed && targetBlockIds.has(block.id))
+
+    if (selectedBlocks.length === 0) {
+      return false
+    }
+
+    this.cancelRemovalAnimation()
+    this.disposeExtractionGroup()
+
+    const selectedFaceKeys = new Set(faceKeys)
+    const selectedBlockIds = new Set(selectedBlocks.map((block) => block.id))
+    const selectedBlocksByPosition = new Map(selectedBlocks.map((block) => [blockPositionKey(block), block]))
+    const extractionGroup = new THREE.Group()
+
+    for (const block of selectedBlocks) {
+      const blockGroup = new THREE.Group()
+      blockGroup.position.copy(gridToWorldVector(block.x, block.y, block.z))
+
+      for (const direction of DIRECTIONS) {
+        if (hasSelectedNeighbor(block, direction, selectedBlocksByPosition, selectedBlockIds)) {
+          continue
+        }
+
+        const faceKey = createFaceKey(block.id, direction)
+        const mesh = this.createFaceMesh(
+          block.x,
+          block.y,
+          block.z,
+          direction,
+          block.letters[direction],
+          selectedFaceKeys.has(faceKey),
+        )
+        mesh.position.sub(blockGroup.position)
+        blockGroup.add(mesh)
+      }
+
+      if (blockGroup.children.length > 0) {
+        extractionGroup.add(blockGroup)
+      }
+    }
+
+    if (extractionGroup.children.length === 0) {
+      return false
+    }
+
+    const centroid = selectedBlocks.reduce(
+      (sum, block) => sum.add(gridToWorldVector(block.x, block.y, block.z)),
+      new THREE.Vector3(),
+    ).divideScalar(selectedBlocks.length)
+    const extractionVector = centroid.clone()
+
+    if (extractionVector.lengthSq() < 0.01) {
+      extractionVector.set(0, 1, 0)
+    } else {
+      extractionVector.normalize()
+      extractionVector.y += 0.22
+      extractionVector.normalize()
+    }
+
+    this.extractionVector = extractionVector
+    this.extractionGroup = extractionGroup
+    this.cubeRoot.add(extractionGroup)
+    this.render()
+    return true
+  }
+
+  animatePreparedBlockExtraction(onComplete: () => void): boolean {
+    if (!this.extractionGroup) {
+      return false
+    }
+
+    this.cancelRemovalAnimation()
+
+    const extractionGroup = this.extractionGroup
+    const startPosition = extractionGroup.position.clone()
+    const startTime = performance.now()
+
+    const finish = () => {
+      this.removalAnimationFrameId = null
+      this.removalHoldTimeoutId = window.setTimeout(() => {
+      this.removalHoldTimeoutId = null
+        this.staggerOutExtractionBlocks(onComplete)
+      }, BLOCK_EXTRACTION_HOLD_MS)
+    }
+
+    const animateFrame = (time: number) => {
+      const progress = clamp((time - startTime) / BLOCK_EXTRACTION_MOVE_MS, 0, 1)
+      const easedProgress = easeOutCubic(progress)
+      const offset = this.extractionVector.clone().multiplyScalar(BLOCK_EXTRACTION_DISTANCE * easedProgress)
+      extractionGroup.position.copy(startPosition).add(offset)
+
+      this.render()
+
+      if (progress < 1) {
+        this.removalAnimationFrameId = window.requestAnimationFrame(animateFrame)
+        return
+      }
+
+      finish()
+    }
+
+    this.removalAnimationFrameId = window.requestAnimationFrame(animateFrame)
+    return true
+  }
+
   private resize() {
     const width = this.container.clientWidth || 640
     const height = this.container.clientHeight || 640
@@ -155,6 +282,100 @@ export class CubeView {
 
   private render() {
     this.renderer.render(this.scene, this.camera)
+  }
+
+  private cancelRemovalAnimation() {
+    if (this.removalAnimationFrameId !== null) {
+      window.cancelAnimationFrame(this.removalAnimationFrameId)
+      this.removalAnimationFrameId = null
+    }
+
+    if (this.removalHoldTimeoutId !== null) {
+      window.clearTimeout(this.removalHoldTimeoutId)
+      this.removalHoldTimeoutId = null
+    }
+
+    this.removalStaggerTimeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId))
+    this.removalStaggerTimeoutIds = []
+  }
+
+  private staggerOutExtractionBlocks(onComplete: () => void) {
+    if (!this.extractionGroup) {
+      onComplete()
+      return
+    }
+
+    const blockGroups = this.extractionGroup.children.filter((child): child is THREE.Group => child instanceof THREE.Group)
+
+    if (blockGroups.length === 0) {
+      this.disposeExtractionGroup()
+      this.render()
+      onComplete()
+      return
+    }
+
+    const orderedBlockGroups = [...blockGroups].sort(
+      (a, b) => b.position.dot(this.extractionVector) - a.position.dot(this.extractionVector),
+    )
+
+    orderedBlockGroups.forEach((blockGroup, index) => {
+      const timeoutId = window.setTimeout(() => {
+        this.animateExtractionBlockShrink(blockGroup, () => {
+          if (index === orderedBlockGroups.length - 1) {
+            this.removalStaggerTimeoutIds = []
+            this.disposeExtractionGroup()
+            this.render()
+            onComplete()
+          }
+        })
+      }, index * BLOCK_EXTRACTION_STAGGER_MS)
+
+      this.removalStaggerTimeoutIds.push(timeoutId)
+    })
+  }
+
+  private animateExtractionBlockShrink(blockGroup: THREE.Group, onComplete: () => void) {
+    const startScale = blockGroup.scale.clone()
+    const startTime = performance.now()
+
+    const animateFrame = (time: number) => {
+      const progress = clamp((time - startTime) / BLOCK_EXTRACTION_SHRINK_MS, 0, 1)
+      const easedProgress = easeInCubic(progress)
+      blockGroup.scale.copy(startScale).multiplyScalar(1 - easedProgress)
+      this.render()
+
+      if (progress < 1) {
+        this.removalAnimationFrameId = window.requestAnimationFrame(animateFrame)
+        return
+      }
+
+      blockGroup.visible = false
+      onComplete()
+    }
+
+    this.removalAnimationFrameId = window.requestAnimationFrame(animateFrame)
+  }
+
+  private disposeExtractionGroup() {
+    if (!this.extractionGroup) {
+      return
+    }
+
+    this.cubeRoot.remove(this.extractionGroup)
+    this.extractionGroup.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) {
+        return
+      }
+
+      object.geometry.dispose()
+      const material = object.material
+      if (Array.isArray(material)) {
+        material.forEach((entry) => entry.dispose())
+      } else {
+        material.dispose()
+      }
+    })
+    this.extractionGroup = null
   }
 
   private applyYawRotation() {
@@ -185,6 +406,7 @@ export class CubeView {
       const faceKey = createFaceKey(face.blockId, face.direction)
       const mesh = this.createFaceMesh(face.x, face.y, face.z, face.direction, face.letter, false)
       mesh.userData.faceKey = faceKey
+      mesh.userData.blockId = face.blockId
       mesh.userData.letter = face.letter
       mesh.userData.direction = face.direction
       mesh.userData.selected = false
@@ -438,6 +660,14 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
+function easeOutCubic(value: number): number {
+  return 1 - (1 - value) ** 3
+}
+
+function easeInCubic(value: number): number {
+  return value ** 3
+}
+
 function getFaceTextureState(selected: boolean, legalHint: boolean): FaceTextureState {
   if (selected) {
     return 'selected'
@@ -457,6 +687,29 @@ function gridToWorld(x: number, y: number, z: number) {
     y: (y - half) * CELL_SIZE,
     z: (z - half) * CELL_SIZE,
   }
+}
+
+function gridToWorldVector(x: number, y: number, z: number): THREE.Vector3 {
+  const point = gridToWorld(x, y, z)
+  return new THREE.Vector3(point.x, point.y, point.z)
+}
+
+function blockPositionKey(block: Block): string {
+  return `${block.x},${block.y},${block.z}`
+}
+
+function hasSelectedNeighbor(
+  block: Block,
+  direction: Direction,
+  selectedBlocksByPosition: Map<string, Block>,
+  selectedBlockIds: Set<string>,
+): boolean {
+  const offset = directionOffset(direction)
+  const neighbor = selectedBlocksByPosition.get(
+    `${block.x + offset.x},${block.y + offset.y},${block.z + offset.z}`,
+  )
+
+  return Boolean(neighbor && selectedBlockIds.has(neighbor.id))
 }
 
 function directionOffset(direction: Direction) {

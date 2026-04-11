@@ -454,9 +454,11 @@ function submitSelection() {
     state.scoreEvents = [{ label: word, points }, ...state.scoreEvents]
   }
 
+  const selectedFaces = [...state.selectedFaces]
+  const hasBlockExtraction = cubeView?.prepareBlockExtraction(selectedFaces) ?? false
   state.foundWords = [{ word, points }, ...state.foundWords]
   scheduleInteractionHintDismissal()
-  state.cube = removeSelectedBlocks(state.cube, state.selectedFaces, faceMap)
+  state.cube = removeSelectedBlocks(state.cube, selectedFaces, faceMap)
   state.selectedFaces = []
   clearLegalMoveHints()
   state.resolvingTurn = true
@@ -467,12 +469,18 @@ function submitSelection() {
   renderShell()
   renderCube()
 
-  window.setTimeout(() => {
-    updateGameOverState({ delayOverlay: true })
-    state.resolvingTurn = false
-    renderShell()
-    renderCube()
-  }, 0)
+  const finishRemoval = () => {
+    window.setTimeout(() => {
+      updateGameOverState({ delayOverlay: true })
+      state.resolvingTurn = false
+      renderShell()
+      renderCube()
+    }, 0)
+  }
+
+  if (!hasBlockExtraction || !cubeView?.animatePreparedBlockExtraction(finishRemoval)) {
+    finishRemoval()
+  }
 }
 
 function currentWord(): string {

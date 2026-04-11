@@ -1419,6 +1419,11 @@ body.mode-tablet-portrait .stage-stack {
   margin-inline: auto;
 }
 
+body.mode-tablet-portrait .stage {
+  height: auto;
+  aspect-ratio: 1 / 1;
+}
+
 body.mode-tablet-portrait .interaction-hint {
   bottom: 14px;
   font-size: 0.72rem;
