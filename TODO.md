@@ -4,7 +4,6 @@
 - Prune and improve dictionaries, possibly ranked by word popularity.
 - Add more juice to the game-over screen.
 - Add sound/haptics settings, especially for mobile.
-- Set up a daily challenge system.
 - Embed a 9-letter word in every cube.
 
 ## Backlog
@@ -17,6 +16,7 @@
 - Add analytics-friendly instrumentation or local debug counters for failed taps, invalid selections, and session outcomes.
 - Add basic automated test coverage for cube rules and word validation flow.
 - Performance pass for mobile GPUs and lower-end devices.
+- Ensure hints only suggest words that are also present in the legal dictionary.
 
 ## Feedback from users
 - Zoe found it too difficult at the start.
@@ -26,6 +26,7 @@
 
 ## Done
 - Add a results/share screen for score, masked longest word, outcome, and next-cube countdown.
+- Set up a daily challenge system.
 - Store daily puzzle progress locally so refreshes resume the same day’s game.
 - Add an optional daily puzzle manifest override for future curation.
 - Add a persistent seed/shareable game ID so the same puzzle can be replayed and debugged across devices.
