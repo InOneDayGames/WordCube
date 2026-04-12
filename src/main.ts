@@ -522,10 +522,6 @@ function renderShell() {
             <span class="byline">by Tom Heaton</span>
           </div>
           <div class="header-meta">
-            <div class="header-badges">
-              <p class="build-version" aria-label="Build ${APP_VERSION}">Build ${APP_VERSION}</p>
-              <p class="game-id" aria-label="Puzzle ${state.gameLabel}">${state.gameLabel}</p>
-            </div>
             <div class="debug-actions">
               <button class="debug-link" data-action="rapid-solve" aria-label="Rapid solve" title="Rapid solve" ${controlsLocked() ? 'disabled' : ''}>
                 ${renderActionIcon('rapid')}
@@ -549,29 +545,7 @@ function renderShell() {
             ${renderInteractionHint()}
             ${renderGameOverOverlay()}
           </div>
-          <div class="stage-controls">
-            ${renderWordReadout()}
-
-            <div class="controls-row">
-              <button class="action" data-action="submit" ${submitDisabled() ? 'disabled' : ''}>
-                Submit
-              </button>
-              <button
-                class="action is-secondary is-clear"
-                data-action="clear"
-                aria-label="Clear selection"
-                title="Clear selection"
-                ${state.selectedFaces.length === 0 ? 'disabled' : ''}
-              >
-                ×
-              </button>
-            </div>
-
-            <button class="action action-with-icon action-secondary tablet-landscape-hint" data-action="hint" ${controlsLocked() ? 'disabled' : ''}>
-              <span class="action-icon" aria-hidden="true">${renderActionIcon('hint')}</span>
-              <span class="action-label">Hint</span>
-            </button>
-          </div>
+          ${renderStageControls()}
           <section class="mobile-history-preview" aria-label="Recent found words">${renderMobileHistoryPreview()}</section>
         </section>
 
@@ -588,12 +562,13 @@ function renderShell() {
             </div>
           </section>
 
-          <button class="action rapid-action action-with-icon action-secondary sidebar-hint" data-action="hint" ${controlsLocked() ? 'disabled' : ''}>
-            <span class="action-icon" aria-hidden="true">${renderActionIcon('hint')}</span>
-            <span class="action-label">Hint</span>
-          </button>
+          ${renderSidebarHintButton()}
         </aside>
       </section>
+      <footer class="build-footer">
+        <span aria-label="Puzzle ${state.gameLabel}">${state.gameLabel}</span>
+        <span aria-label="Build ${APP_VERSION}">Build ${APP_VERSION}</span>
+      </footer>
       ${renderHistorySheet()}
     </main>
   `
@@ -601,6 +576,51 @@ function renderShell() {
   document.body.classList.toggle('history-sheet-open', state.historySheetOpen)
   bindUi()
   syncDailyCountdownTimer()
+}
+
+function renderStageControls(): string {
+  if (state.gameOverReason) {
+    return ''
+  }
+
+  return `
+    <div class="stage-controls">
+      ${renderWordReadout()}
+
+      <div class="controls-row">
+        <button class="action" data-action="submit" ${submitDisabled() ? 'disabled' : ''}>
+          Submit
+        </button>
+        <button
+          class="action is-secondary is-clear"
+          data-action="clear"
+          aria-label="Clear selection"
+          title="Clear selection"
+          ${state.selectedFaces.length === 0 ? 'disabled' : ''}
+        >
+          ×
+        </button>
+      </div>
+
+      <button class="action action-with-icon action-secondary tablet-landscape-hint" data-action="hint" ${controlsLocked() ? 'disabled' : ''}>
+        <span class="action-icon" aria-hidden="true">${renderActionIcon('hint')}</span>
+        <span class="action-label">Hint</span>
+      </button>
+    </div>
+  `
+}
+
+function renderSidebarHintButton(): string {
+  if (state.gameOverReason) {
+    return ''
+  }
+
+  return `
+    <button class="action rapid-action action-with-icon action-secondary sidebar-hint" data-action="hint" ${controlsLocked() ? 'disabled' : ''}>
+      <span class="action-icon" aria-hidden="true">${renderActionIcon('hint')}</span>
+      <span class="action-label">Hint</span>
+    </button>
+  `
 }
 
 function handleViewportModeChange() {
@@ -646,10 +666,6 @@ function bindUi() {
 
   bindButtons('[data-action="hint"]', () => {
     applyHint()
-  })
-
-  bindButtons('[data-action="replay"]', () => {
-    replayGame()
   })
 
   bindButtons('[data-action="share-results"]', () => {
@@ -1231,14 +1247,15 @@ function renderGameOverOverlay(): string {
 
   const longestWord = getLongestFoundWord()
   const visibleLongestWord = longestWord ?? 'None'
-  const gameOverAction =
-    state.gameDateKey === null
-      ? '<button class="action game-over-action" data-action="replay">Replay</button>'
-      : ''
+  const outcome = state.gameOverReason === 'cleared' ? 'Cube Cleared' : 'No words left'
 
   return `
     <div class="game-over-overlay">
       <div class="game-over-results-stack">
+        <section class="game-over-outcome-panel" aria-label="Result">
+          <p>${outcome}</p>
+        </section>
+
         <section class="game-over-card" aria-label="Word Cube results">
           <p class="game-over-title">WORD CUBE</p>
           <p class="game-over-reason">${state.gameLabel}</p>
@@ -1248,7 +1265,6 @@ function renderGameOverOverlay(): string {
           </div>
           <p class="game-over-stat game-over-longest"><span>Longest</span><strong>${visibleLongestWord}</strong></p>
           <button class="action game-over-action" data-action="share-results">${state.shareStatus ?? 'Share'}</button>
-          ${gameOverAction}
         </section>
 
         ${
@@ -1278,12 +1294,23 @@ async function shareResults() {
     canShare?: (data: ShareData) => boolean
     share?: (data: ShareData) => Promise<void>
   }
+  const textShareData: ShareData = {
+    title: 'Word Cube',
+    text: shareText,
+    url: shareUrl,
+  }
+  const nativeShareTarget = shouldUseNativeShare()
 
-  if (typeof shareNavigator.share === 'function' && shouldUseNativeShare()) {
+  if (nativeShareTarget) {
+    if (typeof shareNavigator.share !== 'function') {
+      state.shareStatus = 'Share unavailable'
+      renderShell()
+      renderCube()
+      return
+    }
+
     const imageShareData: ShareData = {
-      title: 'Word Cube',
-      text: shareText,
-      url: shareUrl,
+      ...textShareData,
       files: [imageFile],
     }
 
@@ -1296,17 +1323,30 @@ async function shareResults() {
         return
       }
 
-      await shareNavigator.share({
-        title: 'Word Cube',
-        text: shareText,
-        url: shareUrl,
-      })
+      await shareNavigator.share(textShareData)
       state.shareStatus = 'Shared'
       renderShell()
       renderCube()
       return
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
+        return
+      }
+
+      try {
+        await shareNavigator.share(textShareData)
+        state.shareStatus = 'Shared'
+        renderShell()
+        renderCube()
+        return
+      } catch (fallbackError) {
+        if (fallbackError instanceof DOMException && fallbackError.name === 'AbortError') {
+          return
+        }
+
+        state.shareStatus = 'Share unavailable'
+        renderShell()
+        renderCube()
         return
       }
     }
@@ -1550,12 +1590,21 @@ function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
 
 function shouldUseNativeShare(): boolean {
   const navigatorWithUserAgentData = navigator as Navigator & { userAgentData?: { mobile?: boolean } }
+  const userAgent = navigator.userAgent
 
   if (navigatorWithUserAgentData.userAgentData?.mobile) {
     return true
   }
 
-  return window.matchMedia('(pointer: coarse)').matches && window.innerWidth <= 1200
+  if (/Android|iPhone|iPad|iPod/i.test(userAgent)) {
+    return true
+  }
+
+  if (/Macintosh/i.test(userAgent) && navigator.maxTouchPoints > 1) {
+    return true
+  }
+
+  return window.matchMedia('(any-pointer: coarse)').matches && window.innerWidth <= 1500
 }
 
 function createResultsShareText(): string {
@@ -1743,14 +1792,6 @@ function rapidSolve() {
   state.status = 'Rapid solve stopped early.'
   renderShell()
   renderCube()
-}
-
-function replayGame() {
-  if (state.gameDateKey !== null) {
-    return
-  }
-
-  resetGameForSeed(state.gameSeed, state.gameLabel, state.gameDateKey, 'Select adjacent visible faces that share an edge.')
 }
 
 function loadRandomTestCube() {
