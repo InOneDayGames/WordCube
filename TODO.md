@@ -1,6 +1,7 @@
 # TODO
 
 ## Next
+- Review score balance now that curated cubes seem to preserve depth without increasing score much.
 - Prune and improve dictionaries, possibly ranked by word popularity.
 - Add more juice to the game-over screen.
 - Add sound/haptics settings, especially for mobile.

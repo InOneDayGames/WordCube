@@ -12,6 +12,7 @@ import {
   type CubeState,
 } from './cube'
 import { CUBE_LETTER_FONT_FAMILY, CubeView } from './cubeView'
+import { createWordData, enumerateWordOpportunities } from './cubeOpportunities'
 import { loadDictionary, loadPopularDictionary } from './dictionary'
 import { APP_VERSION } from './version'
 
@@ -28,6 +29,20 @@ type DailyPuzzleManifestEntry = {
 }
 type DailyPuzzleManifest = {
   puzzles: Map<string, DailyPuzzleManifestEntry>
+}
+type ManifestPuzzleDebugEntry = {
+  dateKey: string
+  seed: number
+  label: string
+}
+type StarterDebugWord = {
+  word: string
+  faceKeys: string[]
+}
+type StarterDebugState = {
+  length: number
+  words: StarterDebugWord[]
+  index: number
 }
 type SavedDailyProgress = {
   version: 1
@@ -70,6 +85,8 @@ type AppState = {
   gameLabel: string
   gameDateKey: string | null
   shareStatus: string | null
+  starterDebug: StarterDebugState | null
+  manifestDebugIndex: number
 }
 
 const CUBE_CLEAR_BONUS = 3
@@ -471,9 +488,12 @@ const state: AppState = {
   gameLabel: initialGameIdentity.label,
   gameDateKey: initialGameIdentity.dateKey,
   shareStatus: null,
+  starterDebug: null,
+  manifestDebugIndex: -1,
 }
 
 let cubeView: CubeView | null = null
+let activeDailyPuzzleManifest: DailyPuzzleManifest | null = null
 let gameOverRevealTimeoutId: number | null = null
 let interactionHintHideTimeoutId: number | null = null
 let dailyCountdownIntervalId: number | null = null
@@ -491,6 +511,7 @@ async function bootstrap() {
       loadPopularDictionary(),
       loadDailyPuzzleManifest(),
     ])
+    activeDailyPuzzleManifest = dailyPuzzleManifest
     state.dictionary = dictionary
     state.popularDictionary = popularDictionary
     state.dictionaryPrefixes = buildPrefixes(state.dictionary)
@@ -529,6 +550,12 @@ function renderShell() {
               <button class="debug-link" data-action="random-cube" aria-label="Random test cube" title="Random test cube" ${debugCubeChangeLocked() ? 'disabled' : ''}>
                 ${renderActionIcon('random')}
               </button>
+              <button class="debug-link" data-action="manifest-cube" aria-label="Load next manifest cube" title="Load next manifest cube" ${manifestDebugLocked() ? 'disabled' : ''}>
+                ${renderActionIcon('manifest')}
+              </button>
+              <button class="debug-link ${state.starterDebug ? 'is-active' : ''}" data-action="toggle-starter-debug" aria-label="Show starter words" title="Show starter words" ${starterDebugLocked() ? 'disabled' : ''}>
+                ${renderActionIcon('words')}
+              </button>
             </div>
           </div>
         </div>
@@ -545,6 +572,7 @@ function renderShell() {
             ${renderInteractionHint()}
             ${renderGameOverOverlay()}
           </div>
+          ${renderStarterDebugPanel()}
           ${renderStageControls()}
           <section class="mobile-history-preview" aria-label="Recent found words">${renderMobileHistoryPreview()}</section>
         </section>
@@ -664,6 +692,36 @@ function bindUi() {
     loadRandomTestCube()
   })
 
+  bindButtons('[data-action="manifest-cube"]', () => {
+    loadNextManifestDebugCube()
+  })
+
+  bindButtons('[data-action="toggle-starter-debug"]', () => {
+    toggleStarterDebug()
+  })
+
+  bindButtons('[data-action="starter-debug-close"]', () => {
+    closeStarterDebug()
+  })
+
+  bindButtons('[data-action="starter-debug-prev"]', () => {
+    stepStarterDebug(-1)
+  })
+
+  bindButtons('[data-action="starter-debug-next"]', () => {
+    stepStarterDebug(1)
+  })
+
+  appRoot.querySelectorAll<HTMLButtonElement>('[data-starter-debug-length]').forEach((button) => {
+    const length = Number(button.dataset.starterDebugLength)
+
+    button.addEventListener('click', () => {
+      if (Number.isInteger(length)) {
+        setStarterDebugLength(length)
+      }
+    })
+  })
+
   bindButtons('[data-action="hint"]', () => {
     applyHint()
   })
@@ -743,7 +801,7 @@ function renderCube() {
 
   cubeView.setState(
     state.cube,
-    state.selectedFaces,
+    state.selectedFaces.length > 0 ? state.selectedFaces : getStarterDebugHighlightFaces(),
     state.yawRadians,
     state.pitchRadians,
     state.legalMoveHintFaces,
@@ -815,11 +873,47 @@ function renderInteractionHint(): string {
   `
 }
 
+function renderStarterDebugPanel(): string {
+  if (!state.starterDebug || state.gameOverReason) {
+    return ''
+  }
+
+  const debug = state.starterDebug
+  const current = getCurrentStarterDebugWord()
+
+  return `
+    <section class="starter-debug-panel" aria-label="Starter word debug">
+      <div class="starter-debug-header">
+        <p>Starter Debug</p>
+        <button class="starter-debug-close" data-action="starter-debug-close" aria-label="Close starter debug">×</button>
+      </div>
+      <div class="starter-debug-toolbar" aria-label="Starter word length">
+        ${[4, 5, 6, 7, 8, 9]
+          .map(
+            (length) =>
+              `<button class="starter-debug-chip ${debug.length === length ? 'is-active' : ''}" data-starter-debug-length="${length}">${length}</button>`,
+          )
+          .join('')}
+      </div>
+      <div class="starter-debug-current">
+        <button class="starter-debug-step" data-action="starter-debug-prev" ${debug.words.length === 0 ? 'disabled' : ''} aria-label="Previous starter word">‹</button>
+        <div class="starter-debug-word">
+          <span>${debug.words.length === 0 ? '0 / 0' : `${debug.index + 1} / ${debug.words.length}`}</span>
+          <strong>${current?.word ?? `No ${debug.length}-letter starters`}</strong>
+        </div>
+        <button class="starter-debug-step" data-action="starter-debug-next" ${debug.words.length === 0 ? 'disabled' : ''} aria-label="Next starter word">›</button>
+      </div>
+    </section>
+  `
+}
+
 
 function handleFaceSelect(faceKey: string) {
   if (controlsLocked()) {
     return
   }
+
+  clearStarterDebug()
 
   const faceMap = buildFaceMap(getExposedFaces(state.cube))
   const existingIndex = state.selectedFaces.indexOf(faceKey)
@@ -1056,7 +1150,7 @@ function renderHistorySheet(): string {
   `
 }
 
-function renderActionIcon(kind: 'hint' | 'rapid' | 'random'): string {
+function renderActionIcon(kind: 'hint' | 'rapid' | 'random' | 'manifest' | 'words'): string {
   if (kind === 'hint') {
     return `
       <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -1071,6 +1165,24 @@ function renderActionIcon(kind: 'hint' | 'rapid' | 'random'): string {
       <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
         <path d="M4 5.6h1.7c1.3 0 2.3.55 3.1 1.66l2.4 3.46c.8 1.1 1.84 1.66 3.1 1.66H16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
         <path d="m14.15 10.5 2.2 1.88-2.2 1.88M4 14.4h1.7c.92 0 1.72-.3 2.4-.9M11.64 6.56c.72-.64 1.6-.96 2.66-.96H16M14.15 3.72l2.2 1.88-2.2 1.88" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    `
+  }
+
+  if (kind === 'manifest') {
+    return `
+      <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <path d="M5.2 3.8h9.6a1.7 1.7 0 0 1 1.7 1.7v9.3a1.7 1.7 0 0 1-1.7 1.7H5.2a1.7 1.7 0 0 1-1.7-1.7V5.5a1.7 1.7 0 0 1 1.7-1.7Z" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M6.2 2.8v2.4M13.8 2.8v2.4M3.8 7.4h12.4M7 10h.1M10 10h.1M13 10h.1M7 13h.1M10 13h.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+    `
+  }
+
+  if (kind === 'words') {
+    return `
+      <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <path d="M4.4 5.1h11.2M4.4 10h11.2M4.4 14.9h7.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+        <path d="M5.4 3.2 3.7 16.8M10.2 3.2 8.5 16.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity=".72"/>
       </svg>
     `
   }
@@ -1104,6 +1216,139 @@ function controlsLocked(): boolean {
 
 function debugCubeChangeLocked(): boolean {
   return state.loading || state.resolvingTurn
+}
+
+function manifestDebugLocked(): boolean {
+  return debugCubeChangeLocked() || getManifestPuzzleDebugEntries().length === 0
+}
+
+function loadNextManifestDebugCube() {
+  const entries = getManifestPuzzleDebugEntries()
+
+  if (entries.length === 0 || debugCubeChangeLocked()) {
+    state.status = 'No manifest cubes available.'
+    renderShell()
+    renderCube()
+    return
+  }
+
+  const nextIndex = (state.manifestDebugIndex + 1 + entries.length) % entries.length
+  const entry = entries[nextIndex]
+
+  state.manifestDebugIndex = nextIndex
+  resetGameForSeed(entry.seed, entry.label, null, `Manifest cube ${nextIndex + 1}/${entries.length}: ${entry.dateKey}.`)
+}
+
+function getManifestPuzzleDebugEntries(): ManifestPuzzleDebugEntry[] {
+  if (!activeDailyPuzzleManifest) {
+    return []
+  }
+
+  return [...activeDailyPuzzleManifest.puzzles.entries()]
+    .sort(([dateKeyA], [dateKeyB]) => dateKeyA.localeCompare(dateKeyB))
+    .map(([dateKey, puzzle]) => ({
+      dateKey,
+      seed: puzzle.seed,
+      label: puzzle.label ?? formatDailyDateLabel(dateKey),
+    }))
+}
+
+function starterDebugLocked(): boolean {
+  return state.loading || !state.popularDictionary || state.resolvingTurn || selectionLocked()
+}
+
+function toggleStarterDebug() {
+  if (state.starterDebug) {
+    closeStarterDebug()
+    return
+  }
+
+  setStarterDebugLength(5)
+}
+
+function closeStarterDebug() {
+  if (!clearStarterDebug()) {
+    return
+  }
+
+  renderShell()
+  renderCube()
+}
+
+function clearStarterDebug(): boolean {
+  if (!state.starterDebug) {
+    return false
+  }
+
+  state.starterDebug = null
+  return true
+}
+
+function setStarterDebugLength(length: number) {
+  if (!state.popularDictionary || starterDebugLocked()) {
+    return
+  }
+
+  const words = findStarterDebugWords(length)
+  state.starterDebug = {
+    length,
+    words,
+    index: 0,
+  }
+  state.status =
+    words.length === 0
+      ? `No visible ${length}-letter popular starter words.`
+      : `Showing ${words.length} visible ${length}-letter popular starter word${words.length === 1 ? '' : 's'}.`
+  renderShell()
+  renderCube()
+}
+
+function stepStarterDebug(direction: -1 | 1) {
+  if (!state.starterDebug || state.starterDebug.words.length === 0) {
+    return
+  }
+
+  const debug = state.starterDebug
+  debug.index = (debug.index + direction + debug.words.length) % debug.words.length
+  const current = debug.words[debug.index]
+  state.status = current ? `Starter debug: ${current.word}.` : 'Starter debug.'
+  renderShell()
+  renderCube()
+}
+
+function getCurrentStarterDebugWord(): StarterDebugWord | null {
+  if (!state.starterDebug || state.starterDebug.words.length === 0) {
+    return null
+  }
+
+  return state.starterDebug.words[state.starterDebug.index] ?? null
+}
+
+function getStarterDebugHighlightFaces(): string[] {
+  return getCurrentStarterDebugWord()?.faceKeys ?? []
+}
+
+function findStarterDebugWords(length: number): StarterDebugWord[] {
+  if (!state.popularDictionary) {
+    return []
+  }
+
+  const wordData = createWordData(state.popularDictionary, length)
+  const opportunities = enumerateWordOpportunities(state.cube, wordData, length, length)
+  const byWord = new Map<string, StarterDebugWord>()
+
+  for (const opportunity of opportunities) {
+    if (byWord.has(opportunity.word)) {
+      continue
+    }
+
+    byWord.set(opportunity.word, {
+      word: opportunity.word,
+      faceKeys: opportunity.faceKeys,
+    })
+  }
+
+  return [...byWord.values()].sort((a, b) => a.word.localeCompare(b.word))
 }
 
 function clearLegalMoveHints(): boolean {
@@ -1822,6 +2067,7 @@ function resetGameForSeed(seed: number, label: string, dateKey: string | null, s
   state.resolvingTurn = false
   state.legalMoveHintFaces = []
   state.shareStatus = null
+  state.starterDebug = null
   state.status = status
   saveDailyProgress()
   renderShell()

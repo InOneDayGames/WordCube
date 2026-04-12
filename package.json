@@ -8,6 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "android:sync": "npm run build && npx cap sync android",
+    "analyze:cubes": "tsc -p tsconfig.sim.json && node scripts/analyze-cubes.mjs",
+    "curate:dailies": "tsc -p tsconfig.sim.json && node scripts/curate-dailies.mjs",
     "simulate:letterbag": "tsc -p tsconfig.sim.json && node scripts/simulate-letterbag.mjs",
     "tune:letterbag": "tsc -p tsconfig.sim.json && node scripts/optimize-letterbag.mjs"
   },
