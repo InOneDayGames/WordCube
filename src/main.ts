@@ -1310,7 +1310,6 @@ async function shareResults() {
     }
 
     const imageShareData: ShareData = {
-      ...textShareData,
       files: [imageFile],
     }
 
