@@ -22,6 +22,7 @@ function parseArgs(args) {
     runs: 100,
     minWordLength: 4,
     maxWordLength: 8,
+    playPolicy: 'shortest-preferred',
     letterWeights: DEFAULT_LETTER_WEIGHTS,
   }
 
@@ -42,6 +43,10 @@ function parseArgs(args) {
         options.maxWordLength = Number(next)
         index += 1
         break
+      case '--policy':
+        options.playPolicy = parsePlayPolicy(next)
+        index += 1
+        break
       case '--seed':
         options.seed = Number(next)
         index += 1
@@ -56,6 +61,14 @@ function parseArgs(args) {
   }
 
   return options
+}
+
+function parsePlayPolicy(input) {
+  if (['shortest-preferred', 'preferred-longest', 'longest'].includes(input)) {
+    return input
+  }
+
+  throw new Error(`Invalid play policy: ${input}`)
 }
 
 function parseWeights(input) {

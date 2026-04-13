@@ -18,6 +18,26 @@ export type SimulationOptions = {
   maxWordLength: number
   letterWeights?: LetterWeights
   seed?: number
+  playPolicy?: PlayPolicy
+}
+
+export type PlayPolicy = 'shortest-preferred' | 'preferred-longest' | 'longest'
+
+export type ScoringProfile = {
+  name: string
+  curve: 'current' | 'moderate' | 'steep'
+}
+
+export type ScoringProfileSummary = {
+  name: string
+  averageScorePerRun: number
+  medianScore: number
+  p90Score: number
+  minScore: number
+  maxScore: number
+  averageLongWordScorePerRun: number
+  longWordScoreShare: number
+  averagePointsPerWord: number
 }
 
 export type SimulationSummary = {
@@ -25,6 +45,8 @@ export type SimulationSummary = {
   seed: number
   minWordLength: number
   maxWordLength: number
+  playPolicy: PlayPolicy
+  scoringProfiles: ScoringProfileSummary[]
   averageInitialPopularWordsExposed: number
   averageWordsPlayedPerRun: number
   averageBlocksRemovedPerRun: number
@@ -41,6 +63,12 @@ export type SimulationSummary = {
 }
 
 const RARE_LETTERS = ['J', 'Q', 'X', 'Z'] as const
+const CUBE_CLEAR_BONUS = 5
+const DEFAULT_SCORING_PROFILES: ScoringProfile[] = [
+  { name: 'old linear (4=1, 5=2, 6=3)', curve: 'current' },
+  { name: 'moderate long-word bonus (4=1, 5=3, 6=5)', curve: 'moderate' },
+  { name: 'steep triangular (4=1, 5=3, 6=6)', curve: 'steep' },
+]
 
 type DictionaryData = {
   words: Set<string>
@@ -105,6 +133,7 @@ export function runSimulation(
 ): SimulationSummary {
   const seed = options.seed ?? Date.now()
   const random = createSeededRandom(seed)
+  const playPolicy = options.playPolicy ?? 'shortest-preferred'
   const playedWordCounts = new Map<string, number>()
   const letterHistogram = new Map<string, number>()
   let totalWordsPlayed = 0
@@ -118,6 +147,9 @@ export function runSimulation(
   let totalUniqueLetters = 0
   let totalStartingSurfaceRareLetters = 0
   let cubesWithStartingSurfaceRareLetter = 0
+  const scoringProfiles = DEFAULT_SCORING_PROFILES
+  const scoresByProfile = scoringProfiles.map((): number[] => [])
+  const longWordScoresByProfile = scoringProfiles.map((): number[] => [])
   const startingRareCounts = new Map<string, number>(RARE_LETTERS.map((letter) => [letter, 0]))
   const startingRareCubeHits = new Map<string, number>(RARE_LETTERS.map((letter) => [letter, 0]))
 
@@ -128,6 +160,8 @@ export function runSimulation(
     })
     let wordsPlayedThisRun = 0
     let blocksRemovedThisRun = 0
+    const scoresThisRun = scoringProfiles.map(() => 0)
+    const longWordScoresThisRun = scoringProfiles.map(() => 0)
     const startingExposedFaces = getExposedFaces(cube)
     const startingPlays = enumeratePlays(cube, dictionary, options.minWordLength, options.maxWordLength)
     const initialPopularWords = new Set(
@@ -167,7 +201,7 @@ export function runSimulation(
       totalTurns += 1
 
       const plays = enumeratePlays(cube, dictionary, options.minWordLength, options.maxWordLength)
-      const chosenPlay = choosePlay(plays)
+      const chosenPlay = choosePlay(plays, playPolicy)
 
       if (!chosenPlay) {
         const blocksLeft = countRemainingBlocks(cube)
@@ -175,6 +209,10 @@ export function runSimulation(
 
         if (blocksLeft > 0) {
           deadBoards += 1
+        } else {
+          scoresThisRun.forEach((_, profileIndex) => {
+            scoresThisRun[profileIndex] += CUBE_CLEAR_BONUS
+          })
         }
 
         break
@@ -185,10 +223,24 @@ export function runSimulation(
       wordsPlayedThisRun += 1
       blocksRemovedThisRun += chosenPlay.uniqueBlockCount
       playedWordCounts.set(chosenPlay.word, (playedWordCounts.get(chosenPlay.word) ?? 0) + 1)
+
+      scoringProfiles.forEach((profile, profileIndex) => {
+        const points = scoreWordLength(chosenPlay.word.length, profile)
+        scoresThisRun[profileIndex] += points
+
+        if (chosenPlay.word.length >= 6) {
+          longWordScoresThisRun[profileIndex] += points
+        }
+      })
     }
 
     totalWordsPlayed += wordsPlayedThisRun
     totalBlocksRemoved += blocksRemovedThisRun
+
+    scoringProfiles.forEach((_, profileIndex) => {
+      scoresByProfile[profileIndex].push(scoresThisRun[profileIndex])
+      longWordScoresByProfile[profileIndex].push(longWordScoresThisRun[profileIndex])
+    })
   }
 
   return {
@@ -196,6 +248,10 @@ export function runSimulation(
     seed,
     minWordLength: options.minWordLength,
     maxWordLength: options.maxWordLength,
+    playPolicy,
+    scoringProfiles: scoringProfiles.map((profile, profileIndex) =>
+      summarizeScoringProfile(profile, scoresByProfile[profileIndex], longWordScoresByProfile[profileIndex], totalWordsPlayed),
+    ),
     averageInitialPopularWordsExposed: totalInitialPopularWordsExposed / options.runs,
     averageWordsPlayedPerRun: totalWordsPlayed / options.runs,
     averageBlocksRemovedPerRun: totalBlocksRemoved / options.runs,
@@ -219,6 +275,82 @@ export function runSimulation(
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([letter, count]) => ({ letter, count })),
   }
+}
+
+function summarizeScoringProfile(
+  profile: ScoringProfile,
+  scores: number[],
+  longWordScores: number[],
+  totalWordsPlayed: number,
+): ScoringProfileSummary {
+  const totalScore = scores.reduce((sum, score) => sum + score, 0)
+  const totalLongWordScore = longWordScores.reduce((sum, score) => sum + score, 0)
+
+  return {
+    name: profile.name,
+    averageScorePerRun: average(scores),
+    medianScore: percentile(scores, 50),
+    p90Score: percentile(scores, 90),
+    minScore: scores.length === 0 ? 0 : Math.min(...scores),
+    maxScore: scores.length === 0 ? 0 : Math.max(...scores),
+    averageLongWordScorePerRun: average(longWordScores),
+    longWordScoreShare: totalScore === 0 ? 0 : totalLongWordScore / totalScore,
+    averagePointsPerWord: totalWordsPlayed === 0 ? 0 : totalScore / totalWordsPlayed,
+  }
+}
+
+function scoreWordLength(length: number, profile: ScoringProfile): number {
+  const adjustedLength = Math.max(1, length - 3)
+
+  switch (profile.curve) {
+    case 'current':
+      return adjustedLength
+    case 'moderate':
+      return scoreModerateLongWordBonus(length)
+    case 'steep':
+      return (adjustedLength * (adjustedLength + 1)) / 2
+  }
+}
+
+function scoreModerateLongWordBonus(length: number): number {
+  const table = new Map([
+    [4, 1],
+    [5, 3],
+    [6, 5],
+    [7, 8],
+    [8, 12],
+    [9, 17],
+  ])
+  const listed = table.get(length)
+
+  if (listed !== undefined) {
+    return listed
+  }
+
+  if (length < 4) {
+    return 1
+  }
+
+  return 17 + ((length - 9) * (length - 3))
+}
+
+function average(values: number[]): number {
+  if (values.length === 0) {
+    return 0
+  }
+
+  return values.reduce((sum, value) => sum + value, 0) / values.length
+}
+
+function percentile(values: number[], targetPercentile: number): number {
+  if (values.length === 0) {
+    return 0
+  }
+
+  const sorted = [...values].sort((a, b) => a - b)
+  const index = Math.round((targetPercentile / 100) * (sorted.length - 1))
+
+  return sorted[index]
 }
 
 function enumeratePlays(
@@ -267,9 +399,33 @@ function enumeratePlays(
   }
 }
 
-function choosePlay(plays: CandidatePlay[]): CandidatePlay | null {
+function choosePlay(plays: CandidatePlay[], playPolicy: PlayPolicy): CandidatePlay | null {
   if (plays.length === 0) {
     return null
+  }
+
+  if (playPolicy === 'longest') {
+    return [...plays].sort((a, b) => {
+      return (
+        b.word.length - a.word.length ||
+        Number(b.preferred) - Number(a.preferred) ||
+        b.uniqueBlockCount - a.uniqueBlockCount ||
+        a.word.localeCompare(b.word) ||
+        a.faceKeys.join('>').localeCompare(b.faceKeys.join('>'))
+      )
+    })[0]
+  }
+
+  if (playPolicy === 'preferred-longest') {
+    return [...plays].sort((a, b) => {
+      return (
+        Number(b.preferred) - Number(a.preferred) ||
+        b.word.length - a.word.length ||
+        b.uniqueBlockCount - a.uniqueBlockCount ||
+        a.word.localeCompare(b.word) ||
+        a.faceKeys.join('>').localeCompare(b.faceKeys.join('>'))
+      )
+    })[0]
   }
 
   return [...plays].sort((a, b) => {

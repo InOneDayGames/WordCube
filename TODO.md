@@ -1,14 +1,12 @@
 # TODO
 
 ## Next
-- Review score balance now that curated cubes seem to preserve depth without increasing score much.
 - Prune and improve dictionaries, possibly ranked by word popularity.
 - Add more juice to the game-over screen.
 - Add sound/haptics settings, especially for mobile.
 - Embed a 9-letter word in every cube.
 
 ## Backlog
-- Before public launch, decide whether to keep the tester two-hour cube refresh cadence or switch back to one cube per day.
 - Accessibility pass: contrast, focus states, reduced motion, readable status messaging.
 
 - Add onboarding-safe loading and error states.
@@ -26,6 +24,8 @@
 - Emma misunderstood the goal and thought it was to clear the board as quickly as possible.
 
 ## Done
+- Switch live scoring to the steep triangular curve and raise the cube-clear bonus to +5.
+- Switch from the tester two-hour cube refresh cadence back to one curated cube per day.
 - Add a results/share screen for score, masked longest word, outcome, and next-cube countdown.
 - Set up a daily challenge system.
 - Store daily puzzle progress locally so refreshes resume the same day’s game.

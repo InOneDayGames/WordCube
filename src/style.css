@@ -773,6 +773,11 @@ p {
   color: var(--text-mid);
 }
 
+.game-over-outcome-bonus {
+  margin-left: 0.35em;
+  color: var(--accent-strong);
+}
+
 .game-over-countdown-panel {
   padding: 14px 18px;
   background: rgba(246, 249, 254, 0.92);

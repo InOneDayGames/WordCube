@@ -45,7 +45,7 @@ type StarterDebugState = {
   index: number
 }
 type SavedDailyProgress = {
-  version: 1
+  version: 2
   seed: number
   label: string
   dateKey: string
@@ -89,14 +89,16 @@ type AppState = {
   manifestDebugIndex: number
 }
 
-const CUBE_CLEAR_BONUS = 3
+const CUBE_CLEAR_BONUS = 5
 const LEGACY_GAME_ID_SEARCH_PARAM = 'seed'
 const GAME_ID_MAX_VALUE = 0xffffffff
 const DAILY_PUZZLE_MANIFEST_URL = `${import.meta.env.BASE_URL}daily-puzzles.json`
 const DAILY_PROGRESS_STORAGE_PREFIX = 'word-cube:daily-progress:v1'
 const DAILY_PUZZLE_TIME_ZONE = 'Europe/London'
 const DAILY_PUZZLE_VERSION = 1
-const DAILY_PUZZLE_REFRESH_INTERVAL_HOURS = 2
+const SAVED_DAILY_PROGRESS_VERSION = 2
+const DAILY_PUZZLE_REFRESH_INTERVAL_HOURS = 24
+const DEBUG_TOOLS_ENABLED = import.meta.env.DEV
 const GAME_OVER_OVERLAY_DELAY_BY_REASON: Record<GameOverReason, number> = {
   cleared: 1000,
   no_more_words: 1500,
@@ -189,7 +191,7 @@ function saveDailyProgress() {
   }
 
   const progress: SavedDailyProgress = {
-    version: 1,
+    version: SAVED_DAILY_PROGRESS_VERSION,
     seed: state.gameSeed,
     label: state.gameLabel,
     dateKey,
@@ -231,7 +233,7 @@ function readSavedDailyProgress(): SavedDailyProgress | null {
 }
 
 function parseSavedDailyProgress(value: unknown): SavedDailyProgress | null {
-  if (!isRecord(value) || value.version !== 1 || state.gameDateKey === null) {
+  if (!isRecord(value) || value.version !== SAVED_DAILY_PROGRESS_VERSION || state.gameDateKey === null) {
     return null
   }
 
@@ -259,7 +261,7 @@ function parseSavedDailyProgress(value: unknown): SavedDailyProgress | null {
   }
 
   return {
-    version: 1,
+    version: SAVED_DAILY_PROGRESS_VERSION,
     seed,
     label: value.label,
     dateKey: value.dateKey,
@@ -412,6 +414,11 @@ function getDailyDateKey(date: Date): string {
   const year = parts.find((part) => part.type === 'year')?.value ?? '1970'
   const month = parts.find((part) => part.type === 'month')?.value ?? '01'
   const day = parts.find((part) => part.type === 'day')?.value ?? '01'
+
+  if (DAILY_PUZZLE_REFRESH_INTERVAL_HOURS >= 24) {
+    return `${year}-${month}-${day}`
+  }
+
   const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? '0')
   const slotHour = Math.floor(hour / DAILY_PUZZLE_REFRESH_INTERVAL_HOURS) * DAILY_PUZZLE_REFRESH_INTERVAL_HOURS
 
@@ -542,22 +549,7 @@ function renderShell() {
             <h1>WORD CUBE</h1>
             <span class="byline">by Tom Heaton</span>
           </div>
-          <div class="header-meta">
-            <div class="debug-actions">
-              <button class="debug-link" data-action="rapid-solve" aria-label="Rapid solve" title="Rapid solve" ${controlsLocked() ? 'disabled' : ''}>
-                ${renderActionIcon('rapid')}
-              </button>
-              <button class="debug-link" data-action="random-cube" aria-label="Random test cube" title="Random test cube" ${debugCubeChangeLocked() ? 'disabled' : ''}>
-                ${renderActionIcon('random')}
-              </button>
-              <button class="debug-link" data-action="manifest-cube" aria-label="Load next manifest cube" title="Load next manifest cube" ${manifestDebugLocked() ? 'disabled' : ''}>
-                ${renderActionIcon('manifest')}
-              </button>
-              <button class="debug-link ${state.starterDebug ? 'is-active' : ''}" data-action="toggle-starter-debug" aria-label="Show starter words" title="Show starter words" ${starterDebugLocked() ? 'disabled' : ''}>
-                ${renderActionIcon('words')}
-              </button>
-            </div>
-          </div>
+          ${renderDebugHeaderActions()}
         </div>
       </section>
 
@@ -596,6 +588,7 @@ function renderShell() {
       <footer class="build-footer">
         <span aria-label="Puzzle ${state.gameLabel}">${state.gameLabel}</span>
         <span aria-label="Build ${APP_VERSION}">Build ${APP_VERSION}</span>
+        <span aria-label="Copyright 2026 Tom Heaton. All rights reserved.">&copy; 2026 Tom Heaton. All rights reserved.</span>
       </footer>
       ${renderHistorySheet()}
     </main>
@@ -648,6 +641,31 @@ function renderSidebarHintButton(): string {
       <span class="action-icon" aria-hidden="true">${renderActionIcon('hint')}</span>
       <span class="action-label">Hint</span>
     </button>
+  `
+}
+
+function renderDebugHeaderActions(): string {
+  if (!DEBUG_TOOLS_ENABLED) {
+    return ''
+  }
+
+  return `
+    <div class="header-meta">
+      <div class="debug-actions">
+        <button class="debug-link" data-action="rapid-solve" aria-label="Rapid solve" title="Rapid solve" ${controlsLocked() ? 'disabled' : ''}>
+          ${renderActionIcon('rapid')}
+        </button>
+        <button class="debug-link" data-action="random-cube" aria-label="Random test cube" title="Random test cube" ${debugCubeChangeLocked() ? 'disabled' : ''}>
+          ${renderActionIcon('random')}
+        </button>
+        <button class="debug-link" data-action="manifest-cube" aria-label="Load next manifest cube" title="Load next manifest cube" ${manifestDebugLocked() ? 'disabled' : ''}>
+          ${renderActionIcon('manifest')}
+        </button>
+        <button class="debug-link ${state.starterDebug ? 'is-active' : ''}" data-action="toggle-starter-debug" aria-label="Show starter words" title="Show starter words" ${starterDebugLocked() ? 'disabled' : ''}>
+          ${renderActionIcon('words')}
+        </button>
+      </div>
+    </div>
   `
 }
 
@@ -874,7 +892,7 @@ function renderInteractionHint(): string {
 }
 
 function renderStarterDebugPanel(): string {
-  if (!state.starterDebug || state.gameOverReason) {
+  if (!DEBUG_TOOLS_ENABLED || !state.starterDebug || state.gameOverReason) {
     return ''
   }
 
@@ -1031,7 +1049,8 @@ function submitDisabled(): boolean {
 }
 
 function scoreWord(word: string): number {
-  return Math.max(1, word.length - 3)
+  const adjustedLength = Math.max(1, word.length - 3)
+  return (adjustedLength * (adjustedLength + 1)) / 2
 }
 
 function renderFoundWords(): string {
@@ -1493,12 +1512,20 @@ function renderGameOverOverlay(): string {
   const longestWord = getLongestFoundWord()
   const visibleLongestWord = longestWord ?? 'None'
   const outcome = state.gameOverReason === 'cleared' ? 'Cube Cleared' : 'No words left'
+  const cubeClearBonus = getCubeClearBonusPoints()
 
   return `
     <div class="game-over-overlay">
       <div class="game-over-results-stack">
         <section class="game-over-outcome-panel" aria-label="Result">
-          <p>${outcome}</p>
+          <p>
+            ${outcome}
+            ${
+              cubeClearBonus === null
+                ? ''
+                : `<span class="game-over-outcome-bonus">+${cubeClearBonus}</span>`
+            }
+          </p>
         </section>
 
         <section class="game-over-card" aria-label="Word Cube results">
@@ -1983,12 +2010,16 @@ function awardCubeClearBonus() {
     return
   }
 
-  if (state.scoreEvents.some(({ label }) => label === 'Cube cleared')) {
+  if (getCubeClearBonusPoints() !== null) {
     return
   }
 
   state.score += CUBE_CLEAR_BONUS
   state.scoreEvents = [{ label: 'Cube cleared', points: CUBE_CLEAR_BONUS }, ...state.scoreEvents]
+}
+
+function getCubeClearBonusPoints(): number | null {
+  return state.scoreEvents.find(({ label }) => label === 'Cube cleared')?.points ?? null
 }
 
 function rapidSolve() {

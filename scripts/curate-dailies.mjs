@@ -4,7 +4,7 @@ import { countLetters, countVowels } from '../.tmp_sim/src/cube.js'
 import { createCubeForSeed, createWordData, enumerateWordOpportunities } from '../.tmp_sim/src/cubeOpportunities.js'
 
 const DAILY_PUZZLE_TIME_ZONE = 'Europe/London'
-const DEFAULT_INTERVAL_HOURS = 2
+const DEFAULT_INTERVAL_HOURS = 24
 const DEFAULT_SALT = 'word-cube:curation:v1'
 const MANIFEST_PATH = resolve(process.cwd(), 'public', 'daily-puzzles.json')
 const RARE_LETTERS = new Set(['J', 'Q', 'X', 'Z'])
@@ -223,7 +223,7 @@ function formatExamples(candidate) {
 
 function writeManifest(results, manifest, runOptions) {
   const nextManifest = {
-    puzzles: {
+    puzzles: runOptions.clear ? {} : {
       ...manifest.puzzles,
     },
   }
@@ -357,6 +357,11 @@ function getSlotDateKey(date, intervalHours) {
   const year = parts.find((part) => part.type === 'year')?.value ?? '1970'
   const month = parts.find((part) => part.type === 'month')?.value ?? '01'
   const day = parts.find((part) => part.type === 'day')?.value ?? '01'
+
+  if (intervalHours >= 24) {
+    return `${year}-${month}-${day}`
+  }
+
   const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? '0')
   const slotHour = Math.floor(hour / intervalHours) * intervalHours
 
@@ -369,7 +374,13 @@ function addHoursToDateKey(dateKey, hours) {
   const date = new Date(Date.UTC(year, month - 1, day, Number(hourPart), 0, 0, 0))
   date.setUTCHours(date.getUTCHours() + hours)
 
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}T${String(date.getUTCHours()).padStart(2, '0')}`
+  const nextDatePart = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+
+  if (hours >= 24 && !dateKey.includes('T')) {
+    return nextDatePart
+  }
+
+  return `${nextDatePart}T${String(date.getUTCHours()).padStart(2, '0')}`
 }
 
 function formatDateKeyLabel(dateKey) {
@@ -401,6 +412,7 @@ function parseArgs(args) {
     write: false,
     replace: false,
     allowFallback: false,
+    clear: false,
   }
 
   for (let index = 0; index < args.length; index += 1) {
@@ -473,6 +485,9 @@ function parseArgs(args) {
       case '--allow-fallback':
         parsedOptions.allowFallback = true
         break
+      case '--clear':
+        parsedOptions.clear = true
+        break
       case '--help':
         printHelp()
         process.exit(0)
@@ -499,8 +514,8 @@ function normalizeOptions(rawOptions) {
   assertPositiveInteger(rawOptions.minUnique, '--min-unique')
   assertPositiveInteger(rawOptions.maxRare, '--max-rare')
 
-  if (rawOptions.startKey !== null && !/^\d{4}-\d{2}-\d{2}T\d{2}$/.test(rawOptions.startKey)) {
-    throw new Error('--start-key must look like 2026-04-12T14')
+  if (rawOptions.startKey !== null && !/^\d{4}-\d{2}-\d{2}(?:T\d{2})?$/.test(rawOptions.startKey)) {
+    throw new Error('--start-key must look like 2026-04-12 or 2026-04-12T14')
   }
 
   if (rawOptions.intervalHours < 1 || rawOptions.intervalHours > 24 || 24 % rawOptions.intervalHours !== 0) {
@@ -561,8 +576,8 @@ Options:
   --slots N              Number of puzzle slots to curate. Default: 12
   --candidates N         Candidate seeds to test per slot. Default: 500
   --shortlist N          Candidate shortlist to print per slot. Default: 3
-  --start-key KEY        First slot key, e.g. 2026-04-12T14. Default: current London slot
-  --interval-hours N     Slot interval. Default: 2
+  --start-key KEY        First slot key, e.g. 2026-04-12. Default: current London slot
+  --interval-hours N     Slot interval. Default: 24
   --salt TEXT            Deterministic candidate seed salt.
   --min-starters N       Minimum popular 4-5 letter surface words. Default: 15
   --min-five N           Minimum popular 5-letter surface words. Default: 2
@@ -575,5 +590,6 @@ Options:
   --write                Update public/daily-puzzles.json.
   --replace              Replace existing manifest entries when writing.
   --allow-fallback       Write the best candidate even if no candidate passes all gates.
+  --clear                Clear existing manifest entries before writing.
 `)
 }
