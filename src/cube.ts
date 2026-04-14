@@ -73,6 +73,8 @@ export type CubeState = {
   blocks: Block[]
 }
 
+type Octant = [number, number, number]
+
 type DirectionVector = {
   x: number
   y: number
@@ -161,7 +163,7 @@ export function canAppendFace(
     return false
   }
 
-  return facesShareEdge(previous, next, cube)
+  return facesAreSurfaceAdjacent(previous, next, cube)
 }
 
 export function selectionToWord(selection: string[], faceMap: Map<string, FaceRef>): string {
@@ -295,13 +297,21 @@ function getFaceCorners(block: Block, direction: Direction): string[] {
   }
 }
 
-function facesShareEdge(a: FaceRef, b: FaceRef, cube: CubeState): boolean {
+function facesAreSurfaceAdjacent(a: FaceRef, b: FaceRef, cube: CubeState): boolean {
   const sharedCorners = a.corners.filter((corner) => b.corners.includes(corner))
 
-  if (sharedCorners.length < 2) {
-    return false
+  if (sharedCorners.length >= 2) {
+    return facesShareReachableEdge(a, b, cube, sharedCorners)
   }
 
+  if (sharedCorners.length === 1) {
+    return facesShareReachableCorner(a, b, cube, sharedCorners[0])
+  }
+
+  return false
+}
+
+function facesShareReachableEdge(a: FaceRef, b: FaceRef, cube: CubeState, sharedCorners: string[]): boolean {
   const edgeAxis = getEdgeAxis(sharedCorners[0], sharedCorners[1])
 
   if (!edgeAxis) {
@@ -318,6 +328,177 @@ function facesShareEdge(a: FaceRef, b: FaceRef, cube: CubeState): boolean {
       emptyQuadrants.has(quadrantKey(quadrantA)) &&
       outsideQuadrantsB.some((quadrantB) => quadrantKey(quadrantA) === quadrantKey(quadrantB)),
   )
+}
+
+function facesShareReachableCorner(a: FaceRef, b: FaceRef, cube: CubeState, sharedCorner: string): boolean {
+  // Diagonal moves are only legal through connected empty space around the shared vertex.
+  const outsideOctantA = getFaceOutsideOctantAtCorner(a, sharedCorner)
+  const outsideOctantB = getFaceOutsideOctantAtCorner(b, sharedCorner)
+
+  if (!outsideOctantA || !outsideOctantB) {
+    return false
+  }
+
+  const emptyOctants = getEmptyOctantsAroundCorner(cube, parseCornerKey(sharedCorner))
+  const startKey = octantKey(outsideOctantA)
+  const targetKey = octantKey(outsideOctantB)
+
+  if (!emptyOctants.has(startKey) || !emptyOctants.has(targetKey)) {
+    return false
+  }
+
+  return emptyOctantsAreConnected(startKey, targetKey, emptyOctants)
+}
+
+function getFaceOutsideOctantAtCorner(face: FaceRef, cornerKeyValue: string): Octant | null {
+  const corner = parseCornerKey(cornerKeyValue)
+  const x = getFaceCornerAxisSign(face, corner, 'x')
+  const y = getFaceCornerAxisSign(face, corner, 'y')
+  const z = getFaceCornerAxisSign(face, corner, 'z')
+
+  if (x === null || y === null || z === null) {
+    return null
+  }
+
+  return [x, y, z]
+}
+
+function getFaceCornerAxisSign(
+  face: FaceRef,
+  corner: { x: number; y: number; z: number },
+  axis: 'x' | 'y' | 'z',
+): number | null {
+  if (getDirectionAxis(face.direction) === axis) {
+    const sign = getDirectionSign(face.direction)
+    const expectedCoordinate = face[axis] + (sign > 0 ? 1 : 0)
+
+    return corner[axis] === expectedCoordinate ? sign : null
+  }
+
+  if (corner[axis] === face[axis]) {
+    return 1
+  }
+
+  if (corner[axis] === face[axis] + 1) {
+    return -1
+  }
+
+  return null
+}
+
+function getDirectionAxis(direction: Direction): 'x' | 'y' | 'z' {
+  if (direction === 'px' || direction === 'nx') {
+    return 'x'
+  }
+
+  if (direction === 'py' || direction === 'ny') {
+    return 'y'
+  }
+
+  return 'z'
+}
+
+function getDirectionSign(direction: Direction): number {
+  return direction.startsWith('p') ? 1 : -1
+}
+
+function getEmptyOctantsAroundCorner(cube: CubeState, corner: { x: number; y: number; z: number }): Set<string> {
+  const occupied = new Set<string>()
+
+  for (const block of cube.blocks) {
+    if (block.removed || !blockTouchesCorner(block, corner)) {
+      continue
+    }
+
+    occupied.add(octantKey(getBlockOctant(block, corner)))
+  }
+
+  return new Set(ALL_OCTANT_KEYS.filter((key) => !occupied.has(key)))
+}
+
+function blockTouchesCorner(block: Block, corner: { x: number; y: number; z: number }): boolean {
+  return (
+    block.x <= corner.x &&
+    corner.x <= block.x + 1 &&
+    block.y <= corner.y &&
+    corner.y <= block.y + 1 &&
+    block.z <= corner.z &&
+    corner.z <= block.z + 1
+  )
+}
+
+function getBlockOctant(block: Block, corner: { x: number; y: number; z: number }): Octant {
+  return [
+    octantSign(block.x + 0.5 - corner.x),
+    octantSign(block.y + 0.5 - corner.y),
+    octantSign(block.z + 0.5 - corner.z),
+  ]
+}
+
+function octantSign(value: number): number {
+  return value < 0 ? -1 : 1
+}
+
+function emptyOctantsAreConnected(startKey: string, targetKey: string, emptyOctants: ReadonlySet<string>): boolean {
+  if (startKey === targetKey) {
+    return true
+  }
+
+  const visited = new Set<string>([startKey])
+  const queue = [startKey]
+
+  while (queue.length > 0) {
+    const current = queue.shift()
+
+    if (!current) {
+      break
+    }
+
+    for (const neighbor of getAdjacentOctantKeys(current)) {
+      if (!emptyOctants.has(neighbor) || visited.has(neighbor)) {
+        continue
+      }
+
+      if (neighbor === targetKey) {
+        return true
+      }
+
+      visited.add(neighbor)
+      queue.push(neighbor)
+    }
+  }
+
+  return false
+}
+
+function getAdjacentOctantKeys(key: string): string[] {
+  const octant = parseOctantKey(key)
+
+  return [0, 1, 2].map((index) => {
+    const neighbor: Octant = [...octant]
+    neighbor[index] *= -1
+    return octantKey(neighbor)
+  })
+}
+
+const ALL_OCTANT_KEYS = [
+  '-1,-1,-1',
+  '-1,-1,1',
+  '-1,1,-1',
+  '-1,1,1',
+  '1,-1,-1',
+  '1,-1,1',
+  '1,1,-1',
+  '1,1,1',
+] as const
+
+function octantKey(octant: Octant): string {
+  return `${octant[0]},${octant[1]},${octant[2]}`
+}
+
+function parseOctantKey(key: string): Octant {
+  const [x, y, z] = key.split(',').map(Number)
+  return [x, y, z]
 }
 
 function getEdgeAxis(cornerA: string, cornerB: string): 'x' | 'y' | 'z' | null {

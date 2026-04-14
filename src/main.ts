@@ -692,7 +692,7 @@ function bindUi() {
     }
 
     state.selectedFaces = []
-    clearLegalMoveHints()
+    updateLegalMoveHints()
     state.status = 'Selection cleared.'
     renderShell()
     renderCube()
@@ -938,7 +938,7 @@ function handleFaceSelect(faceKey: string) {
 
   if (existingIndex >= 0) {
     state.selectedFaces = state.selectedFaces.slice(0, existingIndex)
-    clearLegalMoveHints()
+    updateLegalMoveHints()
     state.status = 'Selection rewound.'
     updateSelectionUi()
     renderCube()
@@ -946,22 +946,17 @@ function handleFaceSelect(faceKey: string) {
   }
 
   if (!canAppendFace(state.selectedFaces, faceKey, faceMap, state.cube)) {
-    state.legalMoveHintFaces =
-      state.selectedFaces.length > 0
-        ? Array.from(faceMap.keys()).filter((candidateKey) =>
-            canAppendFace(state.selectedFaces, candidateKey, faceMap, state.cube),
-          )
-        : []
+    updateLegalMoveHints()
     state.status =
       state.selectedFaces.length === 0
         ? 'Face is not selectable.'
-        : 'Next face must share a common edge with the previous face.'
+        : 'Next face must touch the previous face.'
     renderCube()
     return
   }
 
   state.selectedFaces = [...state.selectedFaces, faceKey]
-  clearLegalMoveHints()
+  updateLegalMoveHints()
   state.status = 'Face added.'
   updateSelectionUi()
   renderCube()
@@ -1376,6 +1371,18 @@ function clearLegalMoveHints(): boolean {
   }
 
   state.legalMoveHintFaces = []
+  return true
+}
+
+function updateLegalMoveHints(): boolean {
+  if (state.selectedFaces.length === 0) {
+    return clearLegalMoveHints()
+  }
+
+  const faceMap = buildFaceMap(getExposedFaces(state.cube))
+  state.legalMoveHintFaces = Array.from(faceMap.keys()).filter((candidateKey) =>
+    canAppendFace(state.selectedFaces, candidateKey, faceMap, state.cube),
+  )
   return true
 }
 
@@ -2124,7 +2131,7 @@ function applyHint() {
   }
 
   state.selectedFaces = hint.faceKeys
-  clearLegalMoveHints()
+  updateLegalMoveHints()
   state.hintedWords.add(hint.word)
   state.hintUsedThisRun = true
   state.status = `Hint: ${hint.word}`
