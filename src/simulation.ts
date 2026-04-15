@@ -67,7 +67,7 @@ const CUBE_CLEAR_BONUS = 5
 const DEFAULT_SCORING_PROFILES: ScoringProfile[] = [
   { name: 'old linear (4=1, 5=2, 6=3)', curve: 'current' },
   { name: 'moderate long-word bonus (4=1, 5=3, 6=5)', curve: 'moderate' },
-  { name: 'steep triangular (4=1, 5=3, 6=6)', curve: 'steep' },
+  { name: 'soft triangular (4=1, 5=2, 6=4)', curve: 'steep' },
 ]
 
 type DictionaryData = {
@@ -308,7 +308,7 @@ function scoreWordLength(length: number, profile: ScoringProfile): number {
     case 'moderate':
       return scoreModerateLongWordBonus(length)
     case 'steep':
-      return (adjustedLength * (adjustedLength + 1)) / 2
+      return 1 + ((adjustedLength - 1) * adjustedLength) / 2
   }
 }
 

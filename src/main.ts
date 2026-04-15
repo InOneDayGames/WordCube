@@ -1045,7 +1045,7 @@ function submitDisabled(): boolean {
 
 function scoreWord(word: string): number {
   const adjustedLength = Math.max(1, word.length - 3)
-  return (adjustedLength * (adjustedLength + 1)) / 2
+  return 1 + ((adjustedLength - 1) * adjustedLength) / 2
 }
 
 function renderFoundWords(): string {

@@ -1,10 +1,16 @@
 # TODO
 
 ## Next
-- Prune and improve dictionaries, possibly ranked by word popularity.
 - Add more juice to the game-over screen.
+- Make the share screen more interesting
+- Investigate safari Share button not working
+- Investigate browser sharing in real environment
+- Prune and improve dictionaries, possibly ranked by word popularity.
 - Add sound/haptics settings, especially for mobile.
-- Embed a 9-letter word in every cube.
+- Optimise cube selection for diagonal selection
+
+
+
 
 ## Backlog
 - Accessibility pass: contrast, focus states, reduced motion, readable status messaging.
@@ -17,14 +23,10 @@
 - Performance pass for mobile GPUs and lower-end devices.
 - Ensure hints only suggest words that are also present in the legal dictionary.
 
-## Feedback from users
-- Zoe found it too difficult at the start.
-- Jake was finding obscure words by selecting letters and looking for red highlighting.
-- Emma wanted longer words because they would feel more satisfying.
-- Emma misunderstood the goal and thought it was to clear the board as quickly as possible.
+
 
 ## Done
-- Switch live scoring to the steep triangular curve and raise the cube-clear bonus to +5.
+- Switch live scoring to the softened triangular curve and keep the cube-clear bonus at +5.
 - Switch from the tester two-hour cube refresh cadence back to one curated cube per day.
 - Add a results/share screen for score, masked longest word, outcome, and next-cube countdown.
 - Set up a daily challenge system.
