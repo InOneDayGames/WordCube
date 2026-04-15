@@ -659,6 +659,75 @@ export class CubeView {
   }
 }
 
+export type CubeShareRenderOptions = {
+  width: number
+  height: number
+  yawRadians: number
+  pitchRadians: number
+  selectedFaceKeys?: string[]
+  cameraRadius?: number
+}
+
+export function renderCubeShareCanvas(cube: CubeState, options: CubeShareRenderOptions): HTMLCanvasElement {
+  const renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    alpha: true,
+    preserveDrawingBuffer: true,
+  })
+  renderer.setPixelRatio(1)
+  renderer.setSize(options.width, options.height, false)
+  renderer.outputColorSpace = THREE.SRGBColorSpace
+  renderer.setClearColor(0x000000, 0)
+
+  const scene = new THREE.Scene()
+  const camera = new THREE.PerspectiveCamera(36, options.width / options.height, 0.1, 100)
+  camera.up.set(0, 1, 0)
+  camera.position.set(0, 0, options.cameraRadius ?? 8.5)
+  camera.lookAt(0, 0, 0)
+
+  const cubeRoot = new THREE.Group()
+  cubeRoot.scale.setScalar(CUBE_RENDER_SCALE)
+  cubeRoot.position.y = CUBE_VERTICAL_OFFSET
+  cubeRoot.rotation.set(
+    clamp(options.pitchRadians, -MAX_PITCH_RADIANS, MAX_PITCH_RADIANS),
+    options.yawRadians,
+    0,
+  )
+  scene.add(cubeRoot)
+
+  const selectedFaceKeys = new Set(options.selectedFaceKeys ?? [])
+
+  for (const face of getExposedFaces(cube)) {
+    cubeRoot.add(
+      createStandaloneFaceMesh(
+        face.x,
+        face.y,
+        face.z,
+        face.direction,
+        face.letter,
+        selectedFaceKeys.has(createFaceKey(face.blockId, face.direction)),
+      ),
+    )
+  }
+
+  renderer.render(scene, camera)
+
+  const canvas = document.createElement('canvas')
+  canvas.width = options.width
+  canvas.height = options.height
+  const context = canvas.getContext('2d')
+
+  if (!context) {
+    renderer.dispose()
+    throw new Error('Unable to create cube share canvas')
+  }
+
+  context.drawImage(renderer.domElement, 0, 0)
+  disposeObjectTree(cubeRoot)
+  renderer.dispose()
+  return canvas
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
@@ -713,6 +782,79 @@ function hasSelectedNeighbor(
   )
 
   return Boolean(neighbor && selectedBlockIds.has(neighbor.id))
+}
+
+function createStandaloneFaceMesh(
+  x: number,
+  y: number,
+  z: number,
+  direction: Direction,
+  letter: string,
+  selected: boolean,
+): THREE.Mesh {
+  const geometry = new THREE.PlaneGeometry(FACE_SIZE, FACE_SIZE)
+  const material = new THREE.MeshBasicMaterial({
+    map: createLetterTexture(letter, direction, selected ? 'selected' : 'normal'),
+    transparent: true,
+    side: THREE.FrontSide,
+  })
+
+  const mesh = new THREE.Mesh(geometry, material)
+  const center = gridToWorld(x, y, z)
+  const offset = directionOffset(direction)
+
+  mesh.position.set(
+    center.x + offset.x * SURFACE_OFFSET,
+    center.y + offset.y * SURFACE_OFFSET,
+    center.z + offset.z * SURFACE_OFFSET,
+  )
+
+  switch (direction) {
+    case 'px':
+      mesh.rotation.y = Math.PI / 2
+      break
+    case 'nx':
+      mesh.rotation.y = -Math.PI / 2
+      break
+    case 'py':
+      mesh.rotation.x = -Math.PI / 2
+      break
+    case 'ny':
+      mesh.rotation.x = Math.PI / 2
+      break
+    case 'pz':
+      break
+    case 'nz':
+      mesh.rotation.y = Math.PI
+      break
+  }
+
+  return mesh
+}
+
+function disposeObjectTree(root: THREE.Object3D) {
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh || object instanceof THREE.LineSegments)) {
+      return
+    }
+
+    object.geometry.dispose()
+    const material = object.material
+
+    if (Array.isArray(material)) {
+      material.forEach(disposeMaterial)
+    } else {
+      disposeMaterial(material)
+    }
+  })
+}
+
+function disposeMaterial(material: THREE.Material) {
+  if ('map' in material && material.map instanceof THREE.Texture) {
+    material.map.dispose()
+  }
+
+  material.dispose()
 }
 
 function directionOffset(direction: Direction) {

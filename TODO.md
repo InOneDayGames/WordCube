@@ -2,7 +2,6 @@
 
 ## Next
 - Add more juice to the game-over screen.
-- Make the share screen more interesting
 - Investigate safari Share button not working
 - Investigate browser sharing in real environment
 - Prune and improve dictionaries, possibly ranked by word popularity.
@@ -26,6 +25,7 @@
 
 
 ## Done
+- Make the share screen more interesting.
 - Switch live scoring to the softened triangular curve and keep the cube-clear bonus at +5.
 - Switch from the tester two-hour cube refresh cadence back to one curated cube per day.
 - Add a results/share screen for score, masked longest word, outcome, and next-cube countdown.

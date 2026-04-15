@@ -3,6 +3,8 @@ import {
   buildFaceMap,
   canAppendFace,
   countRemainingBlocks,
+  CUBE_SIZE,
+  createFaceKey,
   createCubeState,
   createSeededRandom,
   DIRECTIONS,
@@ -11,7 +13,7 @@ import {
   selectionToWord,
   type CubeState,
 } from './cube'
-import { CUBE_LETTER_FONT_FAMILY, CubeView } from './cubeView'
+import { CUBE_LETTER_FONT_FAMILY, CubeView, renderCubeShareCanvas } from './cubeView'
 import { createWordData, enumerateWordOpportunities } from './cubeOpportunities'
 import { loadDictionary, loadPopularDictionary } from './dictionary'
 import { APP_VERSION } from './version'
@@ -1686,66 +1688,239 @@ async function createResultsShareImageBlob(): Promise<Blob> {
   }
 
   const maskedLongestWord = maskWord(getLongestFoundWord())
-  const backgroundGradient = context.createLinearGradient(0, 0, SHARE_IMAGE_WIDTH, SHARE_IMAGE_HEIGHT)
-  backgroundGradient.addColorStop(0, '#eef5ff')
-  backgroundGradient.addColorStop(0.55, '#f8fbff')
-  backgroundGradient.addColorStop(1, '#e4edf9')
+  const starterCube = createCubeForSeed(state.gameSeed)
+  const pageGradient = context.createLinearGradient(0, 0, SHARE_IMAGE_WIDTH, SHARE_IMAGE_HEIGHT)
+  pageGradient.addColorStop(0, '#f4f8ff')
+  pageGradient.addColorStop(1, '#e6edf8')
 
-  context.fillStyle = backgroundGradient
+  context.fillStyle = pageGradient
   context.fillRect(0, 0, SHARE_IMAGE_WIDTH, SHARE_IMAGE_HEIGHT)
-  drawShareGlow(context, 180, 150, 300, 'rgba(63, 116, 255, 0.16)')
-  drawShareGlow(context, 880, 1120, 380, 'rgba(245, 218, 112, 0.18)')
 
   context.save()
-  context.shadowColor = 'rgba(23, 39, 72, 0.16)'
-  context.shadowBlur = 48
-  context.shadowOffsetY = 28
-  fillRoundedRect(context, 82, 112, 916, 1076, 64, 'rgba(255, 255, 255, 0.94)')
+  context.shadowColor = 'rgba(18, 28, 54, 0.24)'
+  context.shadowBlur = 46
+  context.shadowOffsetY = 26
+  drawShareCard(context)
   context.restore()
-  strokeRoundedRect(context, 82, 112, 916, 1076, 64, 'rgba(113, 135, 171, 0.28)', 3)
 
-  drawTrackedText(context, 'WORD CUBE', SHARE_IMAGE_WIDTH / 2, 240, 72, 7, '#13203b', 'center')
+  drawShareBackdrop(context)
+  drawTrackedText(context, 'WORD CUBE', SHARE_IMAGE_WIDTH / 2, 180, 82, 5, '#ffffff', 'center')
+  drawShareDate(context, state.gameLabel.toUpperCase(), SHARE_IMAGE_WIDTH / 2, 268)
+  drawShareCubeRender(context, starterCube)
 
-  context.font = "700 34px Manrope, 'Segoe UI', sans-serif"
-  context.fillStyle = '#70809b'
-  context.textAlign = 'center'
-  context.textBaseline = 'middle'
-  context.fillText(state.gameLabel, SHARE_IMAGE_WIDTH / 2, 310)
-
-  fillRoundedRect(context, 166, 410, 340, 244, 42, '#f8fbff')
-  fillRoundedRect(context, 574, 410, 340, 244, 42, '#f8fbff')
-  strokeRoundedRect(context, 166, 410, 340, 244, 42, 'rgba(138, 157, 189, 0.24)', 2)
-  strokeRoundedRect(context, 574, 410, 340, 244, 42, 'rgba(138, 157, 189, 0.24)', 2)
-  drawShareStat(context, 'Score', String(state.score), 336, 530, 86)
-  drawShareStat(context, 'Words', String(state.foundWords.length), 744, 530, 86)
-
-  fillRoundedRect(context, 166, 718, 748, 220, 42, '#f8fbff')
-  strokeRoundedRect(context, 166, 718, 748, 220, 42, 'rgba(138, 157, 189, 0.24)', 2)
-  drawShareStat(context, 'Longest', maskedLongestWord, SHARE_IMAGE_WIDTH / 2, 832, getShareLongestFontSize(maskedLongestWord))
-
-  context.font = "700 27px Manrope, 'Segoe UI', sans-serif"
-  context.fillStyle = '#70809b'
-  context.textAlign = 'center'
-  context.textBaseline = 'middle'
-  context.fillText('inonedaygames.github.io/WordCube', SHARE_IMAGE_WIDTH / 2, 1072)
+  drawSharePanelStat(
+    context,
+    'Score',
+    String(state.score),
+    174,
+    792 + SHARE_RESULTS_CONTENT_OFFSET_Y,
+    354,
+    190,
+    '#3d66f5',
+    '#142158',
+  )
+  drawSharePanelStat(
+    context,
+    'Words Found',
+    String(state.foundWords.length),
+    552,
+    792 + SHARE_RESULTS_CONTENT_OFFSET_Y,
+    354,
+    190,
+    '#2c898d',
+    '#173d56',
+  )
+  drawShareLongestPanel(context, maskedLongestWord)
+  drawShareFooter(context)
 
   return canvasToPngBlob(canvas)
 }
 
-function drawShareStat(
+const SHARE_CARD_X = 78
+const SHARE_CARD_Y = 58
+const SHARE_CARD_WIDTH = 924
+const SHARE_CARD_HEIGHT = 1234
+const SHARE_CARD_RADIUS = 62
+const SHARE_RESULTS_CONTENT_OFFSET_Y = -44
+
+function drawShareCard(context: CanvasRenderingContext2D) {
+  const cardGradient = context.createLinearGradient(SHARE_CARD_X, SHARE_CARD_Y, SHARE_CARD_X, SHARE_CARD_Y + SHARE_CARD_HEIGHT)
+  cardGradient.addColorStop(0, '#172a5b')
+  cardGradient.addColorStop(0.48, '#111b42')
+  cardGradient.addColorStop(1, '#0e1738')
+
+  fillRoundedRect(
+    context,
+    SHARE_CARD_X,
+    SHARE_CARD_Y,
+    SHARE_CARD_WIDTH,
+    SHARE_CARD_HEIGHT,
+    SHARE_CARD_RADIUS,
+    cardGradient,
+  )
+  strokeRoundedRect(
+    context,
+    SHARE_CARD_X,
+    SHARE_CARD_Y,
+    SHARE_CARD_WIDTH,
+    SHARE_CARD_HEIGHT,
+    SHARE_CARD_RADIUS,
+    'rgba(150, 186, 255, 0.20)',
+    2,
+  )
+}
+
+function drawShareBackdrop(context: CanvasRenderingContext2D) {
+  context.save()
+  addRoundedRectPath(context, SHARE_CARD_X, SHARE_CARD_Y, SHARE_CARD_WIDTH, SHARE_CARD_HEIGHT, SHARE_CARD_RADIUS)
+  context.clip()
+
+  drawShareGlow(context, 360, 580, 460, 'rgba(64, 188, 238, 0.34)')
+  drawShareGlow(context, 820, 600, 500, 'rgba(98, 78, 238, 0.28)')
+  drawShareGlow(context, 510, 930, 500, 'rgba(49, 68, 178, 0.32)')
+  context.restore()
+}
+
+function drawShareDate(context: CanvasRenderingContext2D, text: string, x: number, y: number) {
+  const lineGap = Math.max(110, text.length * 12)
+  const leftLine = context.createLinearGradient(x - 310, y, x - lineGap, y)
+  leftLine.addColorStop(0, 'rgba(130, 227, 238, 0)')
+  leftLine.addColorStop(1, 'rgba(170, 221, 255, 0.72)')
+
+  const rightLine = context.createLinearGradient(x + lineGap, y, x + 310, y)
+  rightLine.addColorStop(0, 'rgba(170, 221, 255, 0.72)')
+  rightLine.addColorStop(1, 'rgba(130, 227, 238, 0)')
+
+  context.lineWidth = 4
+  context.lineCap = 'round'
+  context.strokeStyle = leftLine
+  context.beginPath()
+  context.moveTo(x - 320, y)
+  context.lineTo(x - lineGap, y)
+  context.stroke()
+
+  context.strokeStyle = rightLine
+  context.beginPath()
+  context.moveTo(x + lineGap, y)
+  context.lineTo(x + 320, y)
+  context.stroke()
+
+  drawTrackedText(context, text, x, y, 32, 7, '#a9bddb', 'center')
+}
+
+function drawShareCubeRender(context: CanvasRenderingContext2D, cube: CubeState) {
+  const cubeCanvas = renderCubeShareCanvas(cube, {
+    width: 760,
+    height: 470,
+    yawRadians: Math.PI / 4,
+    pitchRadians: (22 * Math.PI) / 180,
+    cameraRadius: 7.2,
+    selectedFaceKeys: getShareAccentFaceKeys(cube),
+  })
+
+  context.save()
+  context.shadowColor = 'rgba(0, 0, 0, 0.34)'
+  context.shadowBlur = 32
+  context.shadowOffsetY = 20
+  context.drawImage(cubeCanvas, 160, 318 + SHARE_RESULTS_CONTENT_OFFSET_Y, 760, 470)
+  context.restore()
+}
+
+function getShareAccentFaceKeys(cube: CubeState): string[] {
+  const center = Math.floor(CUBE_SIZE / 2)
+  const accentBlock = cube.blocks.find(
+    (block) => !block.removed && block.x === center && block.y === center && block.z === CUBE_SIZE - 1,
+  )
+
+  if (accentBlock) {
+    return [createFaceKey(accentBlock.id, 'pz')]
+  }
+
+  return []
+}
+
+function drawSharePanelStat(
   context: CanvasRenderingContext2D,
   label: string,
   value: string,
   x: number,
-  valueBaseline: number,
-  valueFontSize: number,
+  y: number,
+  width: number,
+  height: number,
+  startColor: string,
+  endColor: string,
 ) {
-  drawTrackedText(context, label.toUpperCase(), x, valueBaseline - valueFontSize / 2 - 38, 25, 4, '#6b7a95', 'center')
-  context.font = `800 ${valueFontSize}px Manrope, 'Segoe UI', sans-serif`
-  context.fillStyle = '#14213b'
+  const gradient = context.createLinearGradient(x, y, x + width, y + height)
+  gradient.addColorStop(0, startColor)
+  gradient.addColorStop(1, endColor)
+
+  context.save()
+  context.shadowColor = 'rgba(2, 8, 30, 0.24)'
+  context.shadowBlur = 18
+  context.shadowOffsetY = 10
+  fillRoundedRect(context, x, y, width, height, 26, gradient)
+  context.restore()
+  strokeRoundedRect(context, x, y, width, height, 26, 'rgba(135, 226, 231, 0.26)', 2)
+
+  drawTrackedText(context, label.toUpperCase(), x + width / 2, y + 40, 23, 4, '#f3f7ff', 'center')
+  context.font = "800 84px Manrope, 'Segoe UI', sans-serif"
+  context.fillStyle = '#ffffff'
   context.textAlign = 'center'
   context.textBaseline = 'middle'
-  context.fillText(value, x, valueBaseline)
+  context.fillText(value, x + width / 2, y + 120)
+}
+
+function drawShareLongestPanel(context: CanvasRenderingContext2D, maskedLongestWord: string) {
+  const x = 166
+  const y = 1020 + SHARE_RESULTS_CONTENT_OFFSET_Y
+  const width = 748
+  const height = 154
+
+  fillRoundedRect(context, x, y, width, height, 28, 'rgba(12, 21, 52, 0.74)')
+  strokeRoundedRect(context, x, y, width, height, 28, 'rgba(99, 225, 218, 0.26)', 2)
+  drawTrackedText(context, 'LONGEST WORD', SHARE_IMAGE_WIDTH / 2, y + 39, 22, 5, '#64e0d4', 'center')
+  drawShareMaskedWord(context, maskedLongestWord, SHARE_IMAGE_WIDTH / 2, y + 101)
+}
+
+function drawShareMaskedWord(context: CanvasRenderingContext2D, word: string, x: number, y: number) {
+  const fontSize = getShareLongestFontSize(word)
+  const tracking = fontSize * 0.16
+
+  context.font = `800 ${fontSize}px Manrope, 'Segoe UI', sans-serif`
+  context.textBaseline = 'middle'
+  context.textAlign = 'left'
+
+  const characters = word.split('')
+  const widths = characters.map((character) => context.measureText(character).width)
+  const textWidth = widths.reduce((sum, width) => sum + width, 0) + tracking * Math.max(0, characters.length - 1)
+  let cursor = x - textWidth / 2
+
+  characters.forEach((character, index) => {
+    context.fillStyle = character === '*' ? '#ffffff' : '#65e7d7'
+    context.fillText(character, cursor, y)
+    cursor += widths[index] + tracking
+  })
+}
+
+function drawShareFooter(context: CanvasRenderingContext2D) {
+  const y = SHARE_RESULTS_CONTENT_OFFSET_Y
+
+  context.strokeStyle = 'rgba(120, 156, 226, 0.18)'
+  context.lineWidth = 2
+  context.beginPath()
+  context.moveTo(148, 1188 + y)
+  context.lineTo(932, 1188 + y)
+  context.stroke()
+
+  context.font = "700 30px Manrope, 'Segoe UI', sans-serif"
+  context.textAlign = 'left'
+  context.textBaseline = 'middle'
+  context.fillStyle = '#ffffff'
+  context.fillText('Beat my score!', 174, 1230 + y)
+
+  context.font = "700 28px Manrope, 'Segoe UI', sans-serif"
+  context.fillStyle = '#65e7d7'
+  context.fillText('inonedaygames.github.io/WordCube', 174, 1272 + y)
 }
 
 function getShareLongestFontSize(maskedLongestWord: string): number {
