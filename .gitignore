@@ -12,6 +12,7 @@ dist
 dist-ssr
 .tmp_sim
 reports
+dictionary-review
 *.local
 
 # Editor directories and files
