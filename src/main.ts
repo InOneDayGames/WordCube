@@ -1567,43 +1567,19 @@ async function shareResults() {
     return
   }
 
-  const shareText = createResultsShareText()
-  const shareUrl = getShareUrl()
   const imageBlob = await createResultsShareImageBlob()
   const imageFile = new File([imageBlob], 'word-cube-results.png', { type: imageBlob.type })
   const shareNavigator = navigator as Navigator & {
     canShare?: (data: ShareData) => boolean
     share?: (data: ShareData) => Promise<void>
   }
-  const textShareData: ShareData = {
-    title: 'Word Cube',
-    text: shareText,
-    url: shareUrl,
+  const imageShareData: ShareData = {
+    files: [imageFile],
   }
-  const nativeShareTarget = shouldUseNativeShare()
 
-  if (nativeShareTarget) {
-    if (typeof shareNavigator.share !== 'function') {
-      state.shareStatus = 'Share unavailable'
-      renderShell()
-      renderCube()
-      return
-    }
-
-    const imageShareData: ShareData = {
-      files: [imageFile],
-    }
-
+  if (typeof shareNavigator.share === 'function' && (!shareNavigator.canShare || shareNavigator.canShare(imageShareData))) {
     try {
-      if (!shareNavigator.canShare || shareNavigator.canShare(imageShareData)) {
-        await shareNavigator.share(imageShareData)
-        state.shareStatus = 'Shared'
-        renderShell()
-        renderCube()
-        return
-      }
-
-      await shareNavigator.share(textShareData)
+      await shareNavigator.share(imageShareData)
       state.shareStatus = 'Shared'
       renderShell()
       renderCube()
@@ -1612,30 +1588,10 @@ async function shareResults() {
       if (error instanceof DOMException && error.name === 'AbortError') {
         return
       }
-
-      try {
-        await shareNavigator.share(textShareData)
-        state.shareStatus = 'Shared'
-        renderShell()
-        renderCube()
-        return
-      } catch (fallbackError) {
-        if (fallbackError instanceof DOMException && fallbackError.name === 'AbortError') {
-          return
-        }
-
-        state.shareStatus = 'Share unavailable'
-        renderShell()
-        renderCube()
-        return
-      }
     }
   }
 
   if (await copyImageToClipboard(imageBlob)) {
-    state.shareStatus = 'Copied to Clipboard'
-  } else if (navigator.clipboard) {
-    await navigator.clipboard.writeText(`${shareText}\n\nWord Cube\n${shareUrl}`)
     state.shareStatus = 'Copied to Clipboard'
   } else {
     downloadShareImage(imageBlob)
@@ -2039,45 +1995,6 @@ function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
       reject(new Error('Unable to create share image'))
     }, 'image/png')
   })
-}
-
-function shouldUseNativeShare(): boolean {
-  const navigatorWithUserAgentData = navigator as Navigator & { userAgentData?: { mobile?: boolean } }
-  const userAgent = navigator.userAgent
-
-  if (navigatorWithUserAgentData.userAgentData?.mobile) {
-    return true
-  }
-
-  if (/Android|iPhone|iPad|iPod/i.test(userAgent)) {
-    return true
-  }
-
-  if (/Macintosh/i.test(userAgent) && navigator.maxTouchPoints > 1) {
-    return true
-  }
-
-  return window.matchMedia('(any-pointer: coarse)').matches && window.innerWidth <= 1500
-}
-
-function createResultsShareText(): string {
-  const longestWord = maskWord(getLongestFoundWord())
-
-  return [
-    'WORD CUBE',
-    state.gameLabel,
-    '',
-    `Score: ${state.score}`,
-    `Words: ${state.foundWords.length}`,
-    `Longest: ${longestWord}`,
-  ].join('\n')
-}
-
-function getShareUrl(): string {
-  const url = new URL(import.meta.env.BASE_URL, window.location.href)
-  url.search = ''
-  url.hash = ''
-  return url.href
 }
 
 function maskWord(word: string | null): string {
