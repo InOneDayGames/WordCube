@@ -1689,6 +1689,7 @@ be
 beach
 beaches
 beacon
+bead
 beaded
 beads
 beagle

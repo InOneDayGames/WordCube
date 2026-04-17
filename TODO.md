@@ -3,12 +3,11 @@
 ## Next
 
 
-
+- New results screen.
 - Prune and improve dictionaries, possibly ranked by word popularity.
 - Add rejected-word debug logging so tester reports can distinguish dictionary misses from path mistakes.
 - Add sound/haptics settings, especially for mobile.
 - Optimise cube selection for diagonal selection
-- Add more juice to the game-over screen.
 - How to upload one puzzle a day so that people can't peek ahead at puzzles? Or is that necessary?
 - Investigate safari Share button not working
 
