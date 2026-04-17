@@ -1046,8 +1046,22 @@ function submitDisabled(): boolean {
 }
 
 function scoreWord(word: string): number {
-  const adjustedLength = Math.max(1, word.length - 3)
-  return 1 + ((adjustedLength - 1) * adjustedLength) / 2
+  const table = new Map([
+    [4, 1],
+    [5, 2],
+    [6, 3],
+    [7, 5],
+    [8, 8],
+    [9, 12],
+    [10, 17],
+  ])
+  const listed = table.get(word.length)
+
+  if (listed !== undefined) {
+    return listed
+  }
+
+  return Math.max(1, 17 + (word.length - 10) * 6)
 }
 
 function renderFoundWords(): string {

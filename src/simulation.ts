@@ -25,7 +25,7 @@ export type PlayPolicy = 'shortest-preferred' | 'preferred-longest' | 'longest'
 
 export type ScoringProfile = {
   name: string
-  curve: 'current' | 'moderate' | 'steep'
+  curve: 'current' | 'moderate' | 'steep' | 'gentle'
 }
 
 export type ScoringProfileSummary = {
@@ -68,6 +68,7 @@ const DEFAULT_SCORING_PROFILES: ScoringProfile[] = [
   { name: 'old linear (4=1, 5=2, 6=3)', curve: 'current' },
   { name: 'moderate long-word bonus (4=1, 5=3, 6=5)', curve: 'moderate' },
   { name: 'soft triangular (4=1, 5=2, 6=4)', curve: 'steep' },
+  { name: 'gentle fibonacci-ish (4=1, 5=2, 6=3)', curve: 'gentle' },
 ]
 
 type DictionaryData = {
@@ -309,7 +310,28 @@ function scoreWordLength(length: number, profile: ScoringProfile): number {
       return scoreModerateLongWordBonus(length)
     case 'steep':
       return 1 + ((adjustedLength - 1) * adjustedLength) / 2
+    case 'gentle':
+      return scoreGentleFibonacciish(length)
   }
+}
+
+function scoreGentleFibonacciish(length: number): number {
+  const table = new Map([
+    [4, 1],
+    [5, 2],
+    [6, 3],
+    [7, 5],
+    [8, 8],
+    [9, 12],
+    [10, 17],
+  ])
+  const listed = table.get(length)
+
+  if (listed !== undefined) {
+    return listed
+  }
+
+  return Math.max(1, 17 + (length - 10) * 6)
 }
 
 function scoreModerateLongWordBonus(length: number): number {
