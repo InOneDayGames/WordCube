@@ -14422,8 +14422,6 @@ nicotine
 niece
 nieces
 nifty
-nigger
-niggers
 nigh
 night
 nightcap
@@ -17604,7 +17602,6 @@ redo
 redone
 redress
 reds
-redskins
 reduce
 reduced
 reduces
@@ -19389,7 +19386,6 @@ shed
 shedding
 sheds
 sheen
-sheeny
 sheep
 sheepskin
 sheer
@@ -20660,7 +20656,6 @@ squat
 squatter
 squatters
 squatting
-squaw
 squawk
 squawking
 squeak
@@ -24170,7 +24165,6 @@ white
 whiteness
 whiter
 whites
-whitey
 whittle
 whittled
 whittling
