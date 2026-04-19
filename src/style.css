@@ -865,8 +865,10 @@ p {
 .history-sheet-panel {
   position: relative;
   display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 12px;
   max-height: min(74vh, 640px);
+  overflow: hidden;
   padding: 12px 14px 16px;
   border-top-left-radius: 24px;
   border-top-right-radius: 24px;
@@ -905,6 +907,7 @@ p {
 .history-sheet-list {
   min-height: 0;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   border: 1px solid var(--panel-border);
   border-radius: 18px;
   background: rgba(247, 249, 253, 0.92);
