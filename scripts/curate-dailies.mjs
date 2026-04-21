@@ -16,17 +16,22 @@ const rawPopularWords = readWordList(resolve(process.cwd(), 'public', 'popular.t
 const legalPopularWords = rawPopularWords.filter((word) => legalWordSet.has(word))
 const legalWordData = createWordData(dictionaryWords, 4)
 const popularWordData = createWordData(legalPopularWords, 4)
-const dateKeys = createDateKeys(options)
 const manifest = readDailyPuzzleManifest()
-const results = dateKeys.map((dateKey) => curateDateKey(dateKey, options))
 
-printReport(results, options)
-
-if (options.write) {
-  writeManifest(results, manifest, options)
+if (options.reportManifest) {
+  printManifestLongWordPersistenceReport(manifest, options)
 } else {
-  console.log('')
-  console.log('Dry run only. Re-run with --write to update public/daily-puzzles.json.')
+  const dateKeys = createDateKeys(options)
+  const results = dateKeys.map((dateKey) => curateDateKey(dateKey, options))
+
+  printReport(results, options)
+
+  if (options.write) {
+    writeManifest(results, manifest, options)
+  } else {
+    console.log('')
+    console.log('Dry run only. Re-run with --write to update public/daily-puzzles.json.')
+  }
 }
 
 function curateDateKey(dateKey, runOptions) {
@@ -221,6 +226,212 @@ function formatExamples(candidate) {
   return `5L ${five}; long ${long}`
 }
 
+function printManifestLongWordPersistenceReport(manifest, runOptions) {
+  const entries = getManifestReportEntries(manifest).slice(-runOptions.reportLast)
+
+  console.log('Word Cube long-word persistence experiment')
+  console.log('===========================================')
+  console.log(
+    `Manifest entries: ${entries.length}; opening moves: unique popular 4-5 letter removal states; ` +
+      `follow-up target: legal ${runOptions.reportLongMin}-${runOptions.reportLongMax} letter surface words after one opening.`,
+  )
+
+  if (entries.length === 0) {
+    console.log('')
+    console.log('No manifest entries found.')
+    return
+  }
+
+  for (const entry of entries) {
+    printLongWordPersistenceEntry(entry, analyzeLongWordPersistence(entry, runOptions), runOptions)
+  }
+}
+
+function getManifestReportEntries(manifest) {
+  return Object.entries(manifest.puzzles)
+    .map(([dateKey, entry]) => {
+      const seed = parseManifestSeed(entry?.seed)
+
+      if (seed === null) {
+        return null
+      }
+
+      return {
+        dateKey,
+        label: typeof entry.label === 'string' ? entry.label : formatDateKeyLabel(dateKey),
+        seed,
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.dateKey.localeCompare(b.dateKey))
+}
+
+function parseManifestSeed(value) {
+  const seed = typeof value === 'number' ? value : Number(value)
+
+  if (!Number.isInteger(seed) || seed < 0 || seed > 0xffffffff) {
+    return null
+  }
+
+  return seed >>> 0
+}
+
+function analyzeLongWordPersistence(entry, runOptions) {
+  const cube = createCubeForSeed(entry.seed)
+  const startingLongWords = analyzeLongSurfaceWords(cube, runOptions)
+  const openings = getOpeningRemovalStates(cube)
+  const openingAnalyses = openings.map((opening) => {
+    const followUpCube = removeBlocks(cube, opening.blockIds)
+    const followUpLongWords = analyzeLongSurfaceWords(followUpCube, runOptions)
+    const newWords = followUpLongWords.words.filter((word) => !startingLongWords.wordSet.has(word))
+
+    return {
+      opening,
+      followUpLongWords,
+      newWords,
+    }
+  })
+  const totals = openingAnalyses.map((analysis) => analysis.followUpLongWords.total)
+  const newWordTotals = openingAnalyses.map((analysis) => analysis.newWords.length)
+
+  return {
+    startingLongWords,
+    openings,
+    openingAnalyses,
+    summary: {
+      average: average(totals),
+      median: median(totals),
+      worst: totals.length === 0 ? 0 : Math.min(...totals),
+      best: totals.length === 0 ? 0 : Math.max(...totals),
+      deadOpenings: totals.filter((total) => total === 0).length,
+      averageNewWords: average(newWordTotals),
+      bestNewWords: newWordTotals.length === 0 ? 0 : Math.max(...newWordTotals),
+    },
+  }
+}
+
+function getOpeningRemovalStates(cube) {
+  const opportunities = enumerateWordOpportunities(cube, popularWordData, 4, 5)
+  const byRemovalState = new Map()
+
+  for (const opportunity of opportunities) {
+    const current = byRemovalState.get(opportunity.removalKey)
+
+    if (!current || compareOpeningRepresentatives(opportunity, current) < 0) {
+      byRemovalState.set(opportunity.removalKey, opportunity)
+    }
+  }
+
+  return [...byRemovalState.values()].sort((a, b) => a.word.localeCompare(b.word) || a.removalKey.localeCompare(b.removalKey))
+}
+
+function compareOpeningRepresentatives(a, b) {
+  return b.word.length - a.word.length || a.word.localeCompare(b.word)
+}
+
+function analyzeLongSurfaceWords(cube, runOptions) {
+  const words = uniqueWords(enumerateWordOpportunities(cube, legalWordData, runOptions.reportLongMin, runOptions.reportLongMax))
+    .sort((a, b) => b.length - a.length || a.localeCompare(b))
+  const byLength = countWordsByLength(words, runOptions.reportLongMin, runOptions.reportLongMax)
+  const longest = chooseLongestWord(words)
+
+  return {
+    words,
+    wordSet: new Set(words),
+    total: words.length,
+    byLength,
+    longestWord: longest.word || null,
+    longestLength: longest.length,
+  }
+}
+
+function removeBlocks(cube, blockIds) {
+  const removedBlockIds = new Set(blockIds)
+
+  return {
+    blocks: cube.blocks.map((block) =>
+      removedBlockIds.has(block.id)
+        ? {
+            ...block,
+            removed: true,
+          }
+        : block,
+    ),
+  }
+}
+
+function printLongWordPersistenceEntry(entry, analysis, runOptions) {
+  const { startingLongWords, openingAnalyses, summary } = analysis
+  const deadRate = openingAnalyses.length === 0 ? 0 : summary.deadOpenings / openingAnalyses.length
+
+  console.log('')
+  console.log(`${entry.dateKey} (${entry.label})`)
+  console.log('-'.repeat(entry.dateKey.length + entry.label.length + 3))
+  console.log(`Seed: ${entry.seed} (${seedToGameId(entry.seed)})`)
+  console.log(
+    `Starting long words: ${startingLongWords.total} ` +
+      `[${formatLengthCounts(startingLongWords.byLength, runOptions.reportLongMin, runOptions.reportLongMax)}], ` +
+      `longest ${startingLongWords.longestWord ?? 'none'} (${startingLongWords.longestLength})`,
+  )
+  console.log(`Starting examples: ${formatWordExamples(startingLongWords.words, 8)}`)
+  console.log(`Openings tested: ${openingAnalyses.length}`)
+  console.log(
+    `After one opening: avg ${formatNumber(summary.average)}, median ${formatNumber(summary.median)}, ` +
+      `worst ${summary.worst}, best ${summary.best}, dead ${summary.deadOpenings}/${openingAnalyses.length} ` +
+      `(${formatPercent(deadRate)}), avg new ${formatNumber(summary.averageNewWords)}, best new ${summary.bestNewWords}`,
+  )
+  console.log(`Best openings: ${formatOpeningAnalyses(getBestOpeningAnalyses(openingAnalyses), runOptions)}`)
+  console.log(`Worst openings: ${formatOpeningAnalyses(getWorstOpeningAnalyses(openingAnalyses), runOptions)}`)
+}
+
+function getBestOpeningAnalyses(openingAnalyses) {
+  return [...openingAnalyses]
+    .sort(
+      (a, b) =>
+        b.followUpLongWords.total - a.followUpLongWords.total ||
+        b.followUpLongWords.longestLength - a.followUpLongWords.longestLength ||
+        b.newWords.length - a.newWords.length ||
+        a.opening.word.localeCompare(b.opening.word),
+    )
+    .slice(0, 3)
+}
+
+function getWorstOpeningAnalyses(openingAnalyses) {
+  return [...openingAnalyses]
+    .sort(
+      (a, b) =>
+        a.followUpLongWords.total - b.followUpLongWords.total ||
+        a.followUpLongWords.longestLength - b.followUpLongWords.longestLength ||
+        a.opening.word.localeCompare(b.opening.word),
+    )
+    .slice(0, 3)
+}
+
+function formatOpeningAnalyses(openingAnalyses, runOptions) {
+  if (openingAnalyses.length === 0) {
+    return 'none'
+  }
+
+  return openingAnalyses
+    .map((analysis) => {
+      const counts = formatLengthCounts(
+        analysis.followUpLongWords.byLength,
+        runOptions.reportLongMin,
+        runOptions.reportLongMax,
+      )
+
+      return (
+        `${analysis.opening.word} -> ${analysis.followUpLongWords.total} ` +
+        `[${counts}], longest ${analysis.followUpLongWords.longestWord ?? 'none'}`
+      )
+    })
+    .join('; ')
+}
+
+function formatWordExamples(words, limit) {
+  return words.length === 0 ? 'none' : words.slice(0, limit).join(', ')
+}
+
 function writeManifest(results, manifest, runOptions) {
   const nextManifest = {
     puzzles: runOptions.clear ? {} : {
@@ -409,6 +620,10 @@ function parseArgs(args) {
     maxVowels: 75,
     minUnique: 20,
     maxRare: 8,
+    reportManifest: false,
+    reportLast: 10,
+    reportLongMin: 7,
+    reportLongMax: 9,
     write: false,
     replace: false,
     allowFallback: false,
@@ -476,6 +691,21 @@ function parseArgs(args) {
         parsedOptions.maxRare = Number(next)
         index += 1
         break
+      case '--report-manifest':
+        parsedOptions.reportManifest = true
+        break
+      case '--last':
+        parsedOptions.reportLast = Number(next)
+        index += 1
+        break
+      case '--report-long-min':
+        parsedOptions.reportLongMin = Number(next)
+        index += 1
+        break
+      case '--report-long-max':
+        parsedOptions.reportLongMax = Number(next)
+        index += 1
+        break
       case '--write':
         parsedOptions.write = true
         break
@@ -513,6 +743,9 @@ function normalizeOptions(rawOptions) {
   assertPositiveInteger(rawOptions.maxVowels, '--max-vowels')
   assertPositiveInteger(rawOptions.minUnique, '--min-unique')
   assertPositiveInteger(rawOptions.maxRare, '--max-rare')
+  assertPositiveInteger(rawOptions.reportLast, '--last')
+  assertPositiveInteger(rawOptions.reportLongMin, '--report-long-min')
+  assertPositiveInteger(rawOptions.reportLongMax, '--report-long-max')
 
   if (rawOptions.startKey !== null && !/^\d{4}-\d{2}-\d{2}(?:T\d{2})?$/.test(rawOptions.startKey)) {
     throw new Error('--start-key must look like 2026-04-12 or 2026-04-12T14')
@@ -524,6 +757,10 @@ function normalizeOptions(rawOptions) {
 
   if (rawOptions.minVowels > rawOptions.maxVowels) {
     throw new Error('--min-vowels must be less than or equal to --max-vowels')
+  }
+
+  if (rawOptions.reportLongMin > rawOptions.reportLongMax) {
+    throw new Error('--report-long-min must be less than or equal to --report-long-max')
   }
 
   return rawOptions
@@ -567,6 +804,32 @@ function formatNumber(value) {
   })
 }
 
+function average(values) {
+  if (values.length === 0) {
+    return 0
+  }
+
+  return values.reduce((sum, value) => sum + value, 0) / values.length
+}
+
+function median(values) {
+  if (values.length === 0) {
+    return 0
+  }
+
+  const sorted = [...values].sort((a, b) => a - b)
+  const middle = Math.floor(sorted.length / 2)
+
+  return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle]
+}
+
+function formatPercent(value) {
+  return value.toLocaleString('en-GB', {
+    maximumFractionDigits: 0,
+    style: 'percent',
+  })
+}
+
 function printHelp() {
   console.log(`
 Usage:
@@ -587,6 +850,10 @@ Options:
   --max-vowels N         Maximum cube vowels. Default: 75
   --min-unique N         Minimum unique cube letters. Default: 20
   --max-rare N           Maximum J/Q/X/Z faces. Default: 8
+  --report-manifest      Read existing manifest and report long-word persistence only.
+  --last N               Manifest report: number of latest entries to analyse. Default: 10
+  --report-long-min N    Manifest report: minimum long-word length. Default: 7
+  --report-long-max N    Manifest report: maximum long-word length. Default: 9
   --write                Update public/daily-puzzles.json.
   --replace              Replace existing manifest entries when writing.
   --allow-fallback       Write the best candidate even if no candidate passes all gates.
