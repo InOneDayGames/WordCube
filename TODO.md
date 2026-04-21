@@ -3,18 +3,23 @@
 ## Next
 
 
-- New results screen.
-- Prune and improve dictionaries, possibly ranked by word popularity.
-- Add rejected-word debug logging so tester reports can distinguish dictionary misses from path mistakes.
-- Add sound/haptics settings, especially for mobile.
-- Optimise cube selection for diagonal selection
+
+
+
+
+
+
+- Review 5 letter legal words that aren't in the popular
+- Buy website and work out migration
 - How to upload one puzzle a day so that people can't peek ahead at puzzles? Or is that necessary?
-- Investigate safari Share button not working
+
 
 
 
 
 ## Backlog
+- Add rejected-word debug logging so tester reports can distinguish dictionary misses from path mistakes.
+- Add sound/haptics settings, especially for mobile.
 - Accessibility pass: contrast, focus states, reduced motion, readable status messaging.
 
 - Add onboarding-safe loading and error states.
@@ -23,7 +28,6 @@
 - Add analytics-friendly instrumentation or local debug counters for failed taps, invalid selections, and session outcomes.
 - Add basic automated test coverage for cube rules and word validation flow.
 - Performance pass for mobile GPUs and lower-end devices.
-- Ensure hints only suggest words that are also present in the legal dictionary.
 
 
 
@@ -53,3 +57,5 @@
 - Improve word-preview affordances, including the 4+ letters empty state and valid-word highlighting.
 - Set up GitHub Pages hosting.
 - Investigate browser sharing in real environment
+- Investigate safari Share button not working
+- Optimise cube selection for diagonal selection
