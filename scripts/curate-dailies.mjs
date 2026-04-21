@@ -233,7 +233,7 @@ function printManifestLongWordPersistenceReport(manifest, runOptions) {
   console.log('===========================================')
   console.log(
     `Manifest entries: ${entries.length}; opening moves: unique popular 4-5 letter removal states; ` +
-      `follow-up target: legal ${runOptions.reportLongMin}-${runOptions.reportLongMax} letter surface words after one opening.`,
+      `follow-up target: popular and legal ${runOptions.reportLongMin}-${runOptions.reportLongMax} letter surface words after one opening.`,
   )
 
   if (entries.length === 0) {
@@ -278,35 +278,47 @@ function parseManifestSeed(value) {
 
 function analyzeLongWordPersistence(entry, runOptions) {
   const cube = createCubeForSeed(entry.seed)
-  const startingLongWords = analyzeLongSurfaceWords(cube, runOptions)
+  const startingPopularLongWords = analyzeLongSurfaceWords(cube, popularWordData, runOptions)
+  const startingLegalLongWords = analyzeLongSurfaceWords(cube, legalWordData, runOptions)
   const openings = getOpeningRemovalStates(cube)
   const openingAnalyses = openings.map((opening) => {
     const followUpCube = removeBlocks(cube, opening.blockIds)
-    const followUpLongWords = analyzeLongSurfaceWords(followUpCube, runOptions)
-    const newWords = followUpLongWords.words.filter((word) => !startingLongWords.wordSet.has(word))
+    const followUpPopularLongWords = analyzeLongSurfaceWords(followUpCube, popularWordData, runOptions)
+    const followUpLegalLongWords = analyzeLongSurfaceWords(followUpCube, legalWordData, runOptions)
+    const newPopularWords = followUpPopularLongWords.words.filter((word) => !startingPopularLongWords.wordSet.has(word))
+    const newLegalWords = followUpLegalLongWords.words.filter((word) => !startingLegalLongWords.wordSet.has(word))
 
     return {
       opening,
-      followUpLongWords,
-      newWords,
+      followUpPopularLongWords,
+      followUpLegalLongWords,
+      newPopularWords,
+      newLegalWords,
     }
   })
-  const totals = openingAnalyses.map((analysis) => analysis.followUpLongWords.total)
-  const newWordTotals = openingAnalyses.map((analysis) => analysis.newWords.length)
 
   return {
-    startingLongWords,
+    startingPopularLongWords,
+    startingLegalLongWords,
     openings,
     openingAnalyses,
-    summary: {
-      average: average(totals),
-      median: median(totals),
-      worst: totals.length === 0 ? 0 : Math.min(...totals),
-      best: totals.length === 0 ? 0 : Math.max(...totals),
-      deadOpenings: totals.filter((total) => total === 0).length,
-      averageNewWords: average(newWordTotals),
-      bestNewWords: newWordTotals.length === 0 ? 0 : Math.max(...newWordTotals),
-    },
+    popularSummary: summarizeFollowUpLongWords(openingAnalyses, 'popular'),
+    legalSummary: summarizeFollowUpLongWords(openingAnalyses, 'legal'),
+  }
+}
+
+function summarizeFollowUpLongWords(openingAnalyses, dictionaryKind) {
+  const totals = openingAnalyses.map((analysis) => getFollowUpLongWords(analysis, dictionaryKind).total)
+  const newWordTotals = openingAnalyses.map((analysis) => getNewLongWords(analysis, dictionaryKind).length)
+
+  return {
+    average: average(totals),
+    median: median(totals),
+    worst: totals.length === 0 ? 0 : Math.min(...totals),
+    best: totals.length === 0 ? 0 : Math.max(...totals),
+    deadOpenings: totals.filter((total) => total === 0).length,
+    averageNewWords: average(newWordTotals),
+    bestNewWords: newWordTotals.length === 0 ? 0 : Math.max(...newWordTotals),
   }
 }
 
@@ -329,8 +341,8 @@ function compareOpeningRepresentatives(a, b) {
   return b.word.length - a.word.length || a.word.localeCompare(b.word)
 }
 
-function analyzeLongSurfaceWords(cube, runOptions) {
-  const words = uniqueWords(enumerateWordOpportunities(cube, legalWordData, runOptions.reportLongMin, runOptions.reportLongMax))
+function analyzeLongSurfaceWords(cube, wordData, runOptions) {
+  const words = uniqueWords(enumerateWordOpportunities(cube, wordData, runOptions.reportLongMin, runOptions.reportLongMax))
     .sort((a, b) => b.length - a.length || a.localeCompare(b))
   const byLength = countWordsByLength(words, runOptions.reportLongMin, runOptions.reportLongMax)
   const longest = chooseLongestWord(words)
@@ -361,71 +373,99 @@ function removeBlocks(cube, blockIds) {
 }
 
 function printLongWordPersistenceEntry(entry, analysis, runOptions) {
-  const { startingLongWords, openingAnalyses, summary } = analysis
-  const deadRate = openingAnalyses.length === 0 ? 0 : summary.deadOpenings / openingAnalyses.length
+  const {
+    startingPopularLongWords,
+    startingLegalLongWords,
+    openingAnalyses,
+    popularSummary,
+    legalSummary,
+  } = analysis
 
   console.log('')
   console.log(`${entry.dateKey} (${entry.label})`)
   console.log('-'.repeat(entry.dateKey.length + entry.label.length + 3))
   console.log(`Seed: ${entry.seed} (${seedToGameId(entry.seed)})`)
-  console.log(
-    `Starting long words: ${startingLongWords.total} ` +
-      `[${formatLengthCounts(startingLongWords.byLength, runOptions.reportLongMin, runOptions.reportLongMax)}], ` +
-      `longest ${startingLongWords.longestWord ?? 'none'} (${startingLongWords.longestLength})`,
-  )
-  console.log(`Starting examples: ${formatWordExamples(startingLongWords.words, 8)}`)
+  console.log(formatStartingLongWords('Popular', startingPopularLongWords, runOptions))
+  console.log(`Popular examples: ${formatWordExamples(startingPopularLongWords.words, 8)}`)
+  console.log(formatStartingLongWords('Legal', startingLegalLongWords, runOptions))
+  console.log(`Legal examples: ${formatWordExamples(startingLegalLongWords.words, 8)}`)
   console.log(`Openings tested: ${openingAnalyses.length}`)
-  console.log(
-    `After one opening: avg ${formatNumber(summary.average)}, median ${formatNumber(summary.median)}, ` +
-      `worst ${summary.worst}, best ${summary.best}, dead ${summary.deadOpenings}/${openingAnalyses.length} ` +
-      `(${formatPercent(deadRate)}), avg new ${formatNumber(summary.averageNewWords)}, best new ${summary.bestNewWords}`,
+  console.log(formatFollowUpSummary('Popular after one opening', popularSummary, openingAnalyses.length))
+  console.log(formatFollowUpSummary('Legal after one opening', legalSummary, openingAnalyses.length))
+  console.log(`Best popular openings: ${formatOpeningAnalyses(getBestOpeningAnalyses(openingAnalyses, 'popular'), 'popular', runOptions)}`)
+  console.log(`Worst popular openings: ${formatOpeningAnalyses(getWorstOpeningAnalyses(openingAnalyses, 'popular'), 'popular', runOptions)}`)
+  console.log(`Best legal openings: ${formatOpeningAnalyses(getBestOpeningAnalyses(openingAnalyses, 'legal'), 'legal', runOptions)}`)
+}
+
+function formatStartingLongWords(label, longWords, runOptions) {
+  return (
+    `${label} starting long words: ${longWords.total} ` +
+    `[${formatLengthCounts(longWords.byLength, runOptions.reportLongMin, runOptions.reportLongMax)}], ` +
+    `longest ${longWords.longestWord ?? 'none'} (${longWords.longestLength})`
   )
-  console.log(`Best openings: ${formatOpeningAnalyses(getBestOpeningAnalyses(openingAnalyses), runOptions)}`)
-  console.log(`Worst openings: ${formatOpeningAnalyses(getWorstOpeningAnalyses(openingAnalyses), runOptions)}`)
 }
 
-function getBestOpeningAnalyses(openingAnalyses) {
+function formatFollowUpSummary(label, summary, openingCount) {
+  const deadRate = openingCount === 0 ? 0 : summary.deadOpenings / openingCount
+
+  return (
+    `${label}: avg ${formatNumber(summary.average)}, median ${formatNumber(summary.median)}, ` +
+    `worst ${summary.worst}, best ${summary.best}, dead ${summary.deadOpenings}/${openingCount} ` +
+    `(${formatPercent(deadRate)}), avg new ${formatNumber(summary.averageNewWords)}, best new ${summary.bestNewWords}`
+  )
+}
+
+function getBestOpeningAnalyses(openingAnalyses, dictionaryKind) {
   return [...openingAnalyses]
     .sort(
       (a, b) =>
-        b.followUpLongWords.total - a.followUpLongWords.total ||
-        b.followUpLongWords.longestLength - a.followUpLongWords.longestLength ||
-        b.newWords.length - a.newWords.length ||
+        getFollowUpLongWords(b, dictionaryKind).total - getFollowUpLongWords(a, dictionaryKind).total ||
+        getFollowUpLongWords(b, dictionaryKind).longestLength - getFollowUpLongWords(a, dictionaryKind).longestLength ||
+        getNewLongWords(b, dictionaryKind).length - getNewLongWords(a, dictionaryKind).length ||
         a.opening.word.localeCompare(b.opening.word),
     )
     .slice(0, 3)
 }
 
-function getWorstOpeningAnalyses(openingAnalyses) {
+function getWorstOpeningAnalyses(openingAnalyses, dictionaryKind) {
   return [...openingAnalyses]
     .sort(
       (a, b) =>
-        a.followUpLongWords.total - b.followUpLongWords.total ||
-        a.followUpLongWords.longestLength - b.followUpLongWords.longestLength ||
+        getFollowUpLongWords(a, dictionaryKind).total - getFollowUpLongWords(b, dictionaryKind).total ||
+        getFollowUpLongWords(a, dictionaryKind).longestLength - getFollowUpLongWords(b, dictionaryKind).longestLength ||
         a.opening.word.localeCompare(b.opening.word),
     )
     .slice(0, 3)
 }
 
-function formatOpeningAnalyses(openingAnalyses, runOptions) {
+function formatOpeningAnalyses(openingAnalyses, dictionaryKind, runOptions) {
   if (openingAnalyses.length === 0) {
     return 'none'
   }
 
   return openingAnalyses
     .map((analysis) => {
+      const longWords = getFollowUpLongWords(analysis, dictionaryKind)
       const counts = formatLengthCounts(
-        analysis.followUpLongWords.byLength,
+        longWords.byLength,
         runOptions.reportLongMin,
         runOptions.reportLongMax,
       )
 
       return (
-        `${analysis.opening.word} -> ${analysis.followUpLongWords.total} ` +
-        `[${counts}], longest ${analysis.followUpLongWords.longestWord ?? 'none'}`
+        `${analysis.opening.word} -> ${longWords.total} ` +
+        `[${counts}], longest ${longWords.longestWord ?? 'none'}`
       )
     })
     .join('; ')
+}
+
+function getFollowUpLongWords(analysis, dictionaryKind) {
+  return dictionaryKind === 'popular' ? analysis.followUpPopularLongWords : analysis.followUpLegalLongWords
+}
+
+function getNewLongWords(analysis, dictionaryKind) {
+  return dictionaryKind === 'popular' ? analysis.newPopularWords : analysis.newLegalWords
 }
 
 function formatWordExamples(words, limit) {
