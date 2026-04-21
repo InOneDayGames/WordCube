@@ -233,7 +233,11 @@ function printManifestLongWordPersistenceReport(manifest, runOptions) {
   console.log('===========================================')
   console.log(
     `Manifest entries: ${entries.length}; opening moves: unique popular 4-5 letter removal states; ` +
-      `follow-up target: popular and legal ${runOptions.reportLongMin}-${runOptions.reportLongMax} letter surface words after one opening.`,
+      `target: popular and legal ${runOptions.reportLongMin}-${runOptions.reportLongMax} letter surface words.`,
+  )
+  console.log(
+    `Dig curve: depth ${runOptions.reportDepth}, branch limit ${runOptions.reportBranchLimit}, ` +
+      `state limit ${runOptions.reportStateLimit}.`,
   )
 
   if (entries.length === 0) {
@@ -304,6 +308,7 @@ function analyzeLongWordPersistence(entry, runOptions) {
     openingAnalyses,
     popularSummary: summarizeFollowUpLongWords(openingAnalyses, 'popular'),
     legalSummary: summarizeFollowUpLongWords(openingAnalyses, 'legal'),
+    depthCurve: analyzeDigDepthCurve(cube, runOptions),
   }
 }
 
@@ -339,6 +344,143 @@ function getOpeningRemovalStates(cube) {
 
 function compareOpeningRepresentatives(a, b) {
   return b.word.length - a.word.length || a.word.localeCompare(b.word)
+}
+
+function analyzeDigDepthCurve(cube, runOptions) {
+  const depthCurve = []
+  let states = [
+    {
+      cube,
+      key: createCubeStateKey(cube),
+      path: [],
+    },
+  ]
+
+  for (let depth = 0; depth <= runOptions.reportDepth; depth += 1) {
+    const stateAnalyses = states.map((state) => analyzeDigState(state, runOptions))
+    depthCurve.push(summarizeDigDepth(depth, stateAnalyses))
+
+    if (depth === runOptions.reportDepth || states.length === 0) {
+      break
+    }
+
+    states = expandDigStates(states, runOptions)
+  }
+
+  return depthCurve
+}
+
+function analyzeDigState(state, runOptions) {
+  return {
+    state,
+    removedBlocks: countRemovedBlocks(state.cube),
+    popularLongWords: analyzeLongSurfaceWords(state.cube, popularWordData, runOptions),
+    legalLongWords: analyzeLongSurfaceWords(state.cube, legalWordData, runOptions),
+  }
+}
+
+function summarizeDigDepth(depth, stateAnalyses) {
+  const removedBlockCounts = stateAnalyses.map((analysis) => analysis.removedBlocks)
+
+  return {
+    depth,
+    stateCount: stateAnalyses.length,
+    averageRemovedBlocks: average(removedBlockCounts),
+    popular: summarizeDigDepthLongWords(stateAnalyses, 'popular'),
+    legal: summarizeDigDepthLongWords(stateAnalyses, 'legal'),
+  }
+}
+
+function summarizeDigDepthLongWords(stateAnalyses, dictionaryKind) {
+  const totals = stateAnalyses.map((analysis) => getDigStateLongWords(analysis, dictionaryKind).total)
+  const worst = chooseDigDepthExtreme(stateAnalyses, dictionaryKind, 'worst')
+  const best = chooseDigDepthExtreme(stateAnalyses, dictionaryKind, 'best')
+
+  return {
+    average: average(totals),
+    median: median(totals),
+    worstCount: worst?.longWords.total ?? 0,
+    worstPath: worst?.analysis.state.path ?? [],
+    bestCount: best?.longWords.total ?? 0,
+    bestPath: best?.analysis.state.path ?? [],
+    deadStates: totals.filter((total) => total === 0).length,
+  }
+}
+
+function chooseDigDepthExtreme(stateAnalyses, dictionaryKind, direction) {
+  const sorted = stateAnalyses
+    .map((analysis) => ({
+      analysis,
+      longWords: getDigStateLongWords(analysis, dictionaryKind),
+    }))
+    .sort((a, b) => {
+      const countComparison =
+        direction === 'best'
+          ? b.longWords.total - a.longWords.total
+          : a.longWords.total - b.longWords.total
+
+      return (
+        countComparison ||
+        (direction === 'best'
+          ? b.longWords.longestLength - a.longWords.longestLength
+          : a.longWords.longestLength - b.longWords.longestLength) ||
+        formatPath(a.analysis.state.path).localeCompare(formatPath(b.analysis.state.path))
+      )
+    })
+
+  return sorted[0] ?? null
+}
+
+function expandDigStates(states, runOptions) {
+  const nextStates = new Map()
+
+  for (const state of states) {
+    for (const opening of getDigOpenings(state.cube, runOptions)) {
+      const childCube = removeBlocks(state.cube, opening.blockIds)
+      const key = createCubeStateKey(childCube)
+
+      if (key === state.key) {
+        continue
+      }
+
+      const child = {
+        cube: childCube,
+        key,
+        path: [...state.path, opening.word],
+      }
+      const current = nextStates.get(key)
+
+      if (!current || compareDigStateRepresentatives(child, current) < 0) {
+        nextStates.set(key, child)
+      }
+    }
+  }
+
+  return [...nextStates.values()]
+    .sort(compareDigStateRepresentatives)
+    .slice(0, runOptions.reportStateLimit)
+}
+
+function getDigOpenings(cube, runOptions) {
+  return getOpeningRemovalStates(cube)
+    .sort(compareDigOpenings)
+    .slice(0, runOptions.reportBranchLimit)
+}
+
+function compareDigOpenings(a, b) {
+  return (
+    b.blockIds.length - a.blockIds.length ||
+    b.word.length - a.word.length ||
+    a.word.localeCompare(b.word)
+  )
+}
+
+function compareDigStateRepresentatives(a, b) {
+  return (
+    countRemovedBlocks(b.cube) - countRemovedBlocks(a.cube) ||
+    a.path.length - b.path.length ||
+    formatPath(a.path).localeCompare(formatPath(b.path))
+  )
 }
 
 function analyzeLongSurfaceWords(cube, wordData, runOptions) {
@@ -395,6 +537,14 @@ function printLongWordPersistenceEntry(entry, analysis, runOptions) {
   console.log(`Best popular openings: ${formatOpeningAnalyses(getBestOpeningAnalyses(openingAnalyses, 'popular'), 'popular', runOptions)}`)
   console.log(`Worst popular openings: ${formatOpeningAnalyses(getWorstOpeningAnalyses(openingAnalyses, 'popular'), 'popular', runOptions)}`)
   console.log(`Best legal openings: ${formatOpeningAnalyses(getBestOpeningAnalyses(openingAnalyses, 'legal'), 'legal', runOptions)}`)
+  console.log('Popular dig curve:')
+  analysis.depthCurve.forEach((depth) => {
+    console.log(`  ${formatDigDepthLine(depth, 'popular')}`)
+  })
+  console.log('Legal dig curve:')
+  analysis.depthCurve.forEach((depth) => {
+    console.log(`  ${formatDigDepthLine(depth, 'legal')}`)
+  })
 }
 
 function formatStartingLongWords(label, longWords, runOptions) {
@@ -466,6 +616,35 @@ function getFollowUpLongWords(analysis, dictionaryKind) {
 
 function getNewLongWords(analysis, dictionaryKind) {
   return dictionaryKind === 'popular' ? analysis.newPopularWords : analysis.newLegalWords
+}
+
+function getDigStateLongWords(analysis, dictionaryKind) {
+  return dictionaryKind === 'popular' ? analysis.popularLongWords : analysis.legalLongWords
+}
+
+function formatDigDepthLine(depth, dictionaryKind) {
+  const summary = dictionaryKind === 'popular' ? depth.popular : depth.legal
+  const deadRate = depth.stateCount === 0 ? 0 : summary.deadStates / depth.stateCount
+
+  return (
+    `D${depth.depth}: states ${depth.stateCount}, removed avg ${formatNumber(depth.averageRemovedBlocks)}, ` +
+    `avg ${formatNumber(summary.average)}, median ${formatNumber(summary.median)}, ` +
+    `worst ${summary.worstCount} (${formatPath(summary.worstPath)}), ` +
+    `best ${summary.bestCount} (${formatPath(summary.bestPath)}), ` +
+    `dead ${summary.deadStates}/${depth.stateCount} (${formatPercent(deadRate)})`
+  )
+}
+
+function countRemovedBlocks(cube) {
+  return cube.blocks.filter((block) => block.removed).length
+}
+
+function createCubeStateKey(cube) {
+  return cube.blocks.map((block) => (block.removed ? '1' : '0')).join('')
+}
+
+function formatPath(path) {
+  return path.length === 0 ? 'start' : path.join(' > ')
 }
 
 function formatWordExamples(words, limit) {
@@ -664,6 +843,9 @@ function parseArgs(args) {
     reportLast: 10,
     reportLongMin: 7,
     reportLongMax: 9,
+    reportDepth: 4,
+    reportBranchLimit: 12,
+    reportStateLimit: 80,
     write: false,
     replace: false,
     allowFallback: false,
@@ -746,6 +928,18 @@ function parseArgs(args) {
         parsedOptions.reportLongMax = Number(next)
         index += 1
         break
+      case '--report-depth':
+        parsedOptions.reportDepth = Number(next)
+        index += 1
+        break
+      case '--report-branch-limit':
+        parsedOptions.reportBranchLimit = Number(next)
+        index += 1
+        break
+      case '--report-state-limit':
+        parsedOptions.reportStateLimit = Number(next)
+        index += 1
+        break
       case '--write':
         parsedOptions.write = true
         break
@@ -786,6 +980,9 @@ function normalizeOptions(rawOptions) {
   assertPositiveInteger(rawOptions.reportLast, '--last')
   assertPositiveInteger(rawOptions.reportLongMin, '--report-long-min')
   assertPositiveInteger(rawOptions.reportLongMax, '--report-long-max')
+  assertPositiveInteger(rawOptions.reportDepth, '--report-depth')
+  assertPositiveInteger(rawOptions.reportBranchLimit, '--report-branch-limit')
+  assertPositiveInteger(rawOptions.reportStateLimit, '--report-state-limit')
 
   if (rawOptions.startKey !== null && !/^\d{4}-\d{2}-\d{2}(?:T\d{2})?$/.test(rawOptions.startKey)) {
     throw new Error('--start-key must look like 2026-04-12 or 2026-04-12T14')
@@ -801,6 +998,14 @@ function normalizeOptions(rawOptions) {
 
   if (rawOptions.reportLongMin > rawOptions.reportLongMax) {
     throw new Error('--report-long-min must be less than or equal to --report-long-max')
+  }
+
+  if (rawOptions.reportBranchLimit < 1) {
+    throw new Error('--report-branch-limit must be at least 1')
+  }
+
+  if (rawOptions.reportStateLimit < 1) {
+    throw new Error('--report-state-limit must be at least 1')
   }
 
   return rawOptions
@@ -894,6 +1099,10 @@ Options:
   --last N               Manifest report: number of latest entries to analyse. Default: 10
   --report-long-min N    Manifest report: minimum long-word length. Default: 7
   --report-long-max N    Manifest report: maximum long-word length. Default: 9
+  --report-depth N       Manifest report: simulated popular-word dig depth. Default: 4
+  --report-branch-limit N
+                          Manifest report: short-word removals sampled per state. Default: 12
+  --report-state-limit N Manifest report: unique states retained per depth. Default: 80
   --write                Update public/daily-puzzles.json.
   --replace              Replace existing manifest entries when writing.
   --allow-fallback       Write the best candidate even if no candidate passes all gates.
