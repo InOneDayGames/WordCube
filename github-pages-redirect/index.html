@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Redirecting to Word Cube</title>
+    <meta http-equiv="refresh" content="0; url=https://wordcube.cc/" />
+    <script>
+      const CANONICAL_ORIGIN = 'https://wordcube.cc'
+      const LEGACY_BASE_PATH = '/WordCube'
+      const ROOT_PATHS = new Set([
+        LEGACY_BASE_PATH,
+        `${LEGACY_BASE_PATH}/`,
+        `${LEGACY_BASE_PATH}/index.html`,
+        `${LEGACY_BASE_PATH}/404.html`,
+      ])
+
+      const currentUrl = new URL(window.location.href)
+      let nextPath = '/'
+
+      if (!ROOT_PATHS.has(currentUrl.pathname) && currentUrl.pathname.startsWith(`${LEGACY_BASE_PATH}/`)) {
+        nextPath = currentUrl.pathname.slice(LEGACY_BASE_PATH.length) || '/'
+      }
+
+      const targetUrl = new URL(nextPath, CANONICAL_ORIGIN)
+      targetUrl.search = currentUrl.search
+      targetUrl.hash = currentUrl.hash
+      window.location.replace(targetUrl.toString())
+    </script>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #081024;
+        color: #f4f7ff;
+        font: 600 18px/1.5 system-ui, sans-serif;
+      }
+
+      main {
+        padding: 24px;
+        text-align: center;
+      }
+
+      a {
+        color: #65e7d7;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p>Redirecting to Word Cube.</p>
+      <p><a href="https://wordcube.cc/">Continue to wordcube.cc</a></p>
+    </main>
+  </body>
+</html>
