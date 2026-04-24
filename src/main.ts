@@ -108,6 +108,7 @@ const GAME_OVER_OVERLAY_DELAY_BY_REASON: Record<GameOverReason, number> = {
 const DAILY_COUNTDOWN_REFRESH_MS = 250
 const SHARE_IMAGE_WIDTH = 1080
 const SHARE_IMAGE_HEIGHT = 1350
+const SHARE_SITE_LABEL = 'wordcube.cc'
 const INTERACTION_HINT_DISMISS_DELAY_MS = 500
 const INTERACTION_HINT_FADE_MS = 900
 
@@ -1890,7 +1891,7 @@ function drawShareFooter(context: CanvasRenderingContext2D) {
 
   context.font = "700 28px Manrope, 'Segoe UI', sans-serif"
   context.fillStyle = '#65e7d7'
-  context.fillText('inonedaygames.github.io/WordCube', 174, 1272 + y)
+  context.fillText(SHARE_SITE_LABEL, 174, 1272 + y)
 }
 
 function getShareLongestFontSize(maskedLongestWord: string): number {
