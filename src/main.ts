@@ -866,9 +866,7 @@ function updateSelectionUi() {
 }
 
 function renderWordReadout(): string {
-  const word = currentWord()
-  const length = word.length
-  const validWord = Boolean(state.dictionary && length >= 4 && state.dictionary.has(word))
+  const { word, length, validWord } = currentWordState()
   const classes = ['word-readout']
 
   if (length === 0) {
@@ -1036,9 +1034,14 @@ function submitSelection() {
   }
 }
 
-function currentWord(): string {
+function currentWordState(): { word: string; length: number; validWord: boolean } {
   const faceMap = buildFaceMap(getExposedFaces(state.cube))
-  return selectionToWord(state.selectedFaces, faceMap)
+  const word = selectionToWord(state.selectedFaces, faceMap)
+  return {
+    word,
+    length: word.length,
+    validWord: Boolean(state.dictionary && word.length >= 4 && state.dictionary.has(word)),
+  }
 }
 
 function handleYawChange(yawRadians: number, pitchRadians = state.pitchRadians) {
@@ -1051,7 +1054,7 @@ function handleYawChange(yawRadians: number, pitchRadians = state.pitchRadians) 
 }
 
 function submitDisabled(): boolean {
-  return state.loading || state.selectedFaces.length === 0 || controlsLocked()
+  return state.loading || controlsLocked() || !currentWordState().validWord
 }
 
 function scoreWord(word: string): number {

@@ -456,16 +456,11 @@ p {
   color: var(--caps);
 }
 
-.word-readout.is-valid {
-  border-color: rgba(186, 73, 84, 0.34);
-  background: linear-gradient(180deg, rgba(255, 245, 245, 0.95), rgba(252, 239, 239, 0.92));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 10px 24px rgba(157, 45, 52, 0.08);
-}
-
 .word-readout.is-valid .word-readout-text {
-  color: var(--danger);
+  text-decoration: underline;
+  text-decoration-thickness: 0.12em;
+  text-underline-offset: 0.16em;
+  text-decoration-color: rgba(63, 116, 255, 0.68);
 }
 
 .word-readout-text {
