@@ -322,8 +322,8 @@ function scoreGentleFibonacciish(length: number): number {
     [6, 3],
     [7, 5],
     [8, 8],
-    [9, 12],
-    [10, 17],
+    [9, 11],
+    [10, 14],
   ])
   const listed = table.get(length)
 
@@ -331,7 +331,7 @@ function scoreGentleFibonacciish(length: number): number {
     return listed
   }
 
-  return Math.max(1, 17 + (length - 10) * 6)
+  return Math.max(1, 14 + (length - 10) * 3)
 }
 
 function scoreModerateLongWordBonus(length: number): number {
