@@ -589,8 +589,16 @@ function renderShell() {
         </aside>
       </section>
       <footer class="build-footer">
-        <span aria-label="Puzzle ${state.gameLabel}">${state.gameLabel}</span>
         <span aria-label="Build ${APP_VERSION}">Build ${APP_VERSION}</span>
+        <a href="/privacy.html">Privacy</a>
+        <a class="footer-mail-link" href="mailto:OneFineDayGames@proton.me" aria-label="Email OneFineDayGames@proton.me">
+          <span class="footer-mail-icon" aria-hidden="true">
+            <svg viewBox="0 0 20 20" fill="none">
+              <path d="M3 5.5h14v9H3z" stroke="currentColor" stroke-width="1.5" rx="2" />
+              <path d="m4.5 7 5.5 4 5.5-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </span>
+        </a>
         <span aria-label="Copyright 2026 Tom Heaton. All rights reserved.">&copy; 2026 Tom Heaton. All rights reserved.</span>
       </footer>
       ${renderHistorySheet()}

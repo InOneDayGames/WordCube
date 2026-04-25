@@ -141,6 +141,7 @@ p {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
+  align-items: center;
   gap: 8px 18px;
   margin-top: 18px;
   text-align: center;
@@ -151,8 +152,36 @@ p {
   color: var(--text-soft);
 }
 
-.build-footer span {
+.build-footer span,
+.build-footer a {
   white-space: nowrap;
+}
+
+.build-footer a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.build-footer a:hover,
+.build-footer a:focus-visible {
+  color: var(--accent-strong);
+}
+
+.footer-mail-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.footer-mail-icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+}
+
+.footer-mail-icon svg {
+  width: 100%;
+  height: 100%;
 }
 
 .debug-link {
