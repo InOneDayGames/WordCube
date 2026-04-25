@@ -54,7 +54,7 @@
 - Improve the presentation of Found Words.
 - Replace UI system font stacks with a deliberate web font.
 - Get layout working on tablet form.
-- Improve word-preview affordances, including the 4+ letters empty state and valid-word highlighting.
+- Improve word-preview affordances, including the 4+ letters empty state, valid-word underline, and legal-word-only Submit state.
 - Set up GitHub Pages hosting.
 - Investigate browser sharing in real environment
 - Investigate safari Share button not working
