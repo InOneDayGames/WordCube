@@ -1,5 +1,4 @@
 import './style.css'
-import type { CubeOrientation } from './cubeView'
 import {
   buildFaceMap,
   canAppendFace,
@@ -14,20 +13,13 @@ import {
   selectionToWord,
   type CubeState,
 } from './cube'
-import {
-  CUBE_LETTER_FONT_FAMILY,
-  createCubeOrientationFromAngles,
-  CubeView,
-  type CubeViewRotationState,
-  renderCubeShareCanvas,
-} from './cubeView'
+import { CUBE_LETTER_FONT_FAMILY, CubeView, renderCubeShareCanvas } from './cubeView'
 import { createWordData, enumerateWordOpportunities } from './cubeOpportunities'
 import { loadDictionary, loadPopularDictionary } from './dictionary'
 import { APP_VERSION } from './version'
 
 type GameOverReason = 'cleared' | 'no_more_words'
 type InteractionHintState = 'visible' | 'dismissing' | 'hidden'
-type RotationVariant = 'default' | 'flip'
 type GameIdentity = {
   label: string
   seed: number
@@ -81,7 +73,6 @@ type AppState = {
   scoreEvents: Array<{ label: string; points: number }>
   yawRadians: number
   pitchRadians: number
-  cubeOrientation: CubeOrientation
   status: string
   loading: boolean
   gameOverReason: GameOverReason | null
@@ -105,8 +96,6 @@ const LEGACY_GAME_ID_SEARCH_PARAM = 'seed'
 const GAME_ID_MAX_VALUE = 0xffffffff
 const DAILY_PUZZLE_MANIFEST_URL = `${import.meta.env.BASE_URL}daily-puzzles.json`
 const DAILY_PROGRESS_STORAGE_PREFIX = 'word-cube:daily-progress:v1'
-const ROTATION_VARIANT_SEARCH_PARAM = 'variant'
-const ROTATION_VARIANT_FLIP_VALUE = 'flip'
 const DAILY_PUZZLE_TIME_ZONE = 'Europe/London'
 const DAILY_PUZZLE_VERSION = 1
 const SAVED_DAILY_PROGRESS_VERSION = 2
@@ -122,19 +111,10 @@ const SHARE_IMAGE_HEIGHT = 1350
 const SHARE_SITE_LABEL = 'wordcube.cc'
 const INTERACTION_HINT_DISMISS_DELAY_MS = 500
 const INTERACTION_HINT_FADE_MS = 900
-const ACTIVE_ROTATION_VARIANT = getRotationVariantFromUrl()
-const FREE_ROTATE_VARIANT_ENABLED = ACTIVE_ROTATION_VARIANT === 'flip'
 
 function getInitialGameIdentity(): GameIdentity {
   removeLegacyGameSeedFromUrl()
   return createDailyGameIdentity(new Date())
-}
-
-function getRotationVariantFromUrl(): RotationVariant {
-  const url = new URL(window.location.href)
-  return url.searchParams.get(ROTATION_VARIANT_SEARCH_PARAM)?.toLowerCase() === ROTATION_VARIANT_FLIP_VALUE
-    ? 'flip'
-    : 'default'
 }
 
 function createCubeForSeed(seed: number): CubeState {
@@ -302,10 +282,6 @@ function parseSavedDailyProgress(value: unknown): SavedDailyProgress | null {
 function getDailyProgressStorageKey(): string | null {
   if (state.gameDateKey === null) {
     return null
-  }
-
-  if (FREE_ROTATE_VARIANT_ENABLED) {
-    return `${DAILY_PROGRESS_STORAGE_PREFIX}:${ROTATION_VARIANT_FLIP_VALUE}:${state.gameDateKey}:${seedToGameId(state.gameSeed)}`
   }
 
   return `${DAILY_PROGRESS_STORAGE_PREFIX}:${state.gameDateKey}:${seedToGameId(state.gameSeed)}`
@@ -508,7 +484,6 @@ const state: AppState = {
   scoreEvents: [],
   yawRadians: Math.PI / 4,
   pitchRadians: (22 * Math.PI) / 180,
-  cubeOrientation: createCubeOrientationFromAngles(Math.PI / 4, (22 * Math.PI) / 180),
   status: 'Loading dictionary…',
   loading: true,
   gameOverReason: null,
@@ -848,7 +823,7 @@ function renderCube() {
   }
 
   if (!cubeView) {
-    cubeView = new CubeView(stage, handleFaceSelect, handleRotationChange)
+    cubeView = new CubeView(stage, handleFaceSelect, handleYawChange)
   } else {
     cubeView.attachTo(stage)
   }
@@ -856,24 +831,10 @@ function renderCube() {
   cubeView.setState(
     state.cube,
     state.selectedFaces.length > 0 ? state.selectedFaces : getStarterDebugHighlightFaces(),
-    getCubeViewRotationState(),
+    state.yawRadians,
+    state.pitchRadians,
     state.legalMoveHintFaces,
   )
-}
-
-function getCubeViewRotationState(): CubeViewRotationState {
-  if (FREE_ROTATE_VARIANT_ENABLED) {
-    return {
-      mode: 'free',
-      orientation: state.cubeOrientation,
-    }
-  }
-
-  return {
-    mode: 'clamped',
-    yawRadians: state.yawRadians,
-    pitchRadians: state.pitchRadians,
-  }
 }
 
 async function loadCubeLetterFont() {
@@ -1083,14 +1044,9 @@ function currentWordState(): { word: string; length: number; validWord: boolean 
   }
 }
 
-function handleRotationChange(rotationState: CubeViewRotationState) {
-  if (rotationState.mode === 'free') {
-    state.cubeOrientation = rotationState.orientation
-  } else {
-    state.yawRadians = rotationState.yawRadians
-    state.pitchRadians = rotationState.pitchRadians
-  }
-
+function handleYawChange(yawRadians: number, pitchRadians = state.pitchRadians) {
+  state.yawRadians = yawRadians
+  state.pitchRadians = pitchRadians
   if (!state.gameOverReason && !state.pendingGameOverReason) {
     state.status = 'Selection preserved.'
   }

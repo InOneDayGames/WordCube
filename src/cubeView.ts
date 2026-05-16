@@ -18,26 +18,7 @@ const BLOCK_EXTRACTION_DISTANCE = 0.17
 const BLOCK_EXTRACTION_STAGGER_MS = 70
 const BLOCK_EXTRACTION_SHRINK_MS = 180
 export const CUBE_LETTER_FONT_FAMILY = '"Libre Baskerville"'
-export type CubeOrientation = {
-  x: number
-  y: number
-  z: number
-  w: number
-}
-export type CubeViewRotationState =
-  | {
-      mode: 'clamped'
-      yawRadians: number
-      pitchRadians: number
-    }
-  | {
-      mode: 'free'
-      orientation: CubeOrientation
-    }
 type FaceTextureState = 'normal' | 'selected' | 'legal'
-
-const WORLD_UP_AXIS = new THREE.Vector3(0, 1, 0)
-const WORLD_RIGHT_AXIS = new THREE.Vector3(1, 0, 0)
 
 export class CubeView {
   private readonly container: HTMLElement
@@ -48,7 +29,7 @@ export class CubeView {
   private readonly raycaster = new THREE.Raycaster()
   private readonly pointer = new THREE.Vector2()
   private readonly onFaceSelect: (faceKey: string) => void
-  private readonly onRotationChange: (rotationState: CubeViewRotationState) => void
+  private readonly onYawChange: (yawRadians: number, pitchRadians: number) => void
   private readonly resizeObserver: ResizeObserver
   private readonly textureCache = new Map<string, THREE.CanvasTexture>()
   private faceMeshes: THREE.Mesh[] = []
@@ -56,10 +37,8 @@ export class CubeView {
   private currentCube: CubeState | null = null
   private selectedFaceKeys = new Set<string>()
   private legalHintFaceKeys = new Set<string>()
-  private rotationMode: CubeViewRotationState['mode'] = 'clamped'
   private yawRadians = 0
   private pitchRadians = 0
-  private readonly orientation = new THREE.Quaternion()
   private dragYawOffset = 0
   private dragPitchOffset = 0
   private pointerStartX: number | null = null
@@ -75,11 +54,11 @@ export class CubeView {
   constructor(
     container: HTMLElement,
     onFaceSelect: (faceKey: string) => void,
-    onRotationChange: (rotationState: CubeViewRotationState) => void,
+    onYawChange: (yawRadians: number, pitchRadians: number) => void,
   ) {
     this.container = container
     this.onFaceSelect = onFaceSelect
-    this.onRotationChange = onRotationChange
+    this.onYawChange = onYawChange
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     this.renderer.domElement.style.touchAction = 'none'
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -128,17 +107,13 @@ export class CubeView {
   setState(
     cube: CubeState,
     selectedFaceKeys: string[],
-    rotationState: CubeViewRotationState,
+    yawRadians: number,
+    pitchRadians: number,
     legalHintFaceKeys: string[] = [],
   ) {
-    this.rotationMode = rotationState.mode
-    if (rotationState.mode === 'free') {
-      this.orientation.copy(deserializeCubeOrientation(rotationState.orientation))
-    } else {
-      this.yawRadians = rotationState.yawRadians
-      this.pitchRadians = rotationState.pitchRadians
-    }
-    this.applyRotation()
+    this.yawRadians = yawRadians
+    this.pitchRadians = pitchRadians
+    this.applyYawRotation()
     if (this.currentCube !== cube) {
       this.rebuildFaces(cube)
       this.currentCube = cube
@@ -406,12 +381,7 @@ export class CubeView {
     this.extractionGroup = null
   }
 
-  private applyRotation() {
-    if (this.rotationMode === 'free') {
-      this.cubeRoot.quaternion.copy(composeDragOrientation(this.orientation, this.dragYawOffset, this.dragPitchOffset))
-      return
-    }
-
+  private applyYawRotation() {
     const clampedPitch = clamp(
       this.pitchRadians + this.dragPitchOffset,
       -MAX_PITCH_RADIANS,
@@ -606,7 +576,7 @@ export class CubeView {
 
     this.dragYawOffset = deltaX * DRAG_RADIANS_PER_PIXEL
     this.dragPitchOffset = deltaY * DRAG_RADIANS_PER_PIXEL
-    this.applyRotation()
+    this.applyYawRotation()
     this.render()
   }
 
@@ -620,23 +590,6 @@ export class CubeView {
     }
 
     if (this.dragActive) {
-      if (this.rotationMode === 'free') {
-        const nextOrientation = composeDragOrientation(this.orientation, this.dragYawOffset, this.dragPitchOffset)
-        this.orientation.copy(nextOrientation)
-        this.dragYawOffset = 0
-        this.dragPitchOffset = 0
-        this.dragActive = false
-        this.pointerStartX = null
-        this.pointerStartY = null
-        this.activePointerId = null
-        this.renderer.domElement.releasePointerCapture(event.pointerId)
-        this.onRotationChange({
-          mode: 'free',
-          orientation: serializeCubeOrientation(nextOrientation),
-        })
-        return
-      }
-
       const nextYawRadians = this.yawRadians + this.dragYawOffset
       const nextPitchRadians = clamp(
         this.pitchRadians + this.dragPitchOffset,
@@ -650,11 +603,7 @@ export class CubeView {
       this.pointerStartY = null
       this.activePointerId = null
       this.renderer.domElement.releasePointerCapture(event.pointerId)
-      this.onRotationChange({
-        mode: 'clamped',
-        yawRadians: nextYawRadians,
-        pitchRadians: nextPitchRadians,
-      })
+      this.onYawChange(nextYawRadians, nextPitchRadians)
       return
     }
 
@@ -682,7 +631,7 @@ export class CubeView {
     this.dragActive = false
     this.dragYawOffset = 0
     this.dragPitchOffset = 0
-    this.applyRotation()
+    this.applyYawRotation()
     this.render()
     this.renderer.domElement.releasePointerCapture(event.pointerId)
   }
@@ -775,44 +724,8 @@ export function renderCubeShareCanvas(cube: CubeState, options: CubeShareRenderO
   return canvas
 }
 
-export function createCubeOrientationFromAngles(yawRadians: number, pitchRadians: number): CubeOrientation {
-  const quaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitchRadians, yawRadians, 0))
-  return serializeCubeOrientation(quaternion)
-}
-
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
-}
-
-function serializeCubeOrientation(quaternion: THREE.Quaternion): CubeOrientation {
-  return {
-    x: quaternion.x,
-    y: quaternion.y,
-    z: quaternion.z,
-    w: quaternion.w,
-  }
-}
-
-function deserializeCubeOrientation(orientation: CubeOrientation): THREE.Quaternion {
-  return new THREE.Quaternion(orientation.x, orientation.y, orientation.z, orientation.w).normalize()
-}
-
-function composeDragOrientation(
-  baseOrientation: THREE.Quaternion,
-  yawOffsetRadians: number,
-  pitchOffsetRadians: number,
-): THREE.Quaternion {
-  const nextOrientation = baseOrientation.clone()
-
-  if (yawOffsetRadians !== 0) {
-    nextOrientation.premultiply(new THREE.Quaternion().setFromAxisAngle(WORLD_UP_AXIS, yawOffsetRadians))
-  }
-
-  if (pitchOffsetRadians !== 0) {
-    nextOrientation.premultiply(new THREE.Quaternion().setFromAxisAngle(WORLD_RIGHT_AXIS, pitchOffsetRadians))
-  }
-
-  return nextOrientation.normalize()
 }
 
 function easeOutCubic(value: number): number {
