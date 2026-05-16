@@ -8,6 +8,7 @@ import {
   createCubeState,
   createSeededRandom,
   DIRECTIONS,
+  type FaceRef,
   getExposedFaces,
   removeSelectedBlocks,
   selectionToWord,
@@ -40,6 +41,19 @@ type ManifestPuzzleDebugEntry = {
 type StarterDebugWord = {
   word: string
   faceKeys: string[]
+}
+type WordReadoutChar = {
+  value: string
+  wildcardResolved: boolean
+  wildcardPlaceholder: boolean
+}
+type CurrentWordState = {
+  displayChars: WordReadoutChar[]
+  displayWord: string
+  rawWord: string
+  submittedWord: string | null
+  length: number
+  validWord: boolean
 }
 type StarterDebugState = {
   length: number
@@ -82,6 +96,7 @@ type AppState = {
   historySheetOpen: boolean
   resolvingTurn: boolean
   legalMoveHintFaces: string[]
+  wildcardFaceKeys: string[]
   interactionHintState: InteractionHintState
   gameSeed: number
   gameLabel: string
@@ -111,6 +126,9 @@ const SHARE_IMAGE_HEIGHT = 1350
 const SHARE_SITE_LABEL = 'wordcube.cc'
 const INTERACTION_HINT_DISMISS_DELAY_MS = 500
 const INTERACTION_HINT_FADE_MS = 900
+const WILDCARD_FACE_COUNT = 2
+const WILDCARD_CHARACTER = '★'
+const SEARCH_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
 
 function getInitialGameIdentity(): GameIdentity {
   removeLegacyGameSeedFromUrl()
@@ -163,6 +181,43 @@ function applyCuratedDailyPuzzle(manifest: DailyPuzzleManifest | null) {
   state.gameSeed = puzzle.seed
   state.gameLabel = puzzle.label ?? formatDailyDateLabel(state.gameDateKey)
   state.cube = createCubeForSeed(puzzle.seed)
+  state.wildcardFaceKeys = getWildcardFaceKeysForSeed(puzzle.seed)
+}
+
+function getWildcardFaceKeysForSeed(seed: number): string[] {
+  const starterCube = createCubeForSeed(seed)
+  const random = createSeededRandom((seed ^ 0x9e3779b9) >>> 0)
+  const faces = getExposedFaces(starterCube)
+  const oppositeLateralPairs = [
+    ['px', 'nx'],
+    ['pz', 'nz'],
+  ] as const
+  const [firstDirection, secondDirection] =
+    oppositeLateralPairs[Math.floor(random() * oppositeLateralPairs.length)] ?? oppositeLateralPairs[0]
+  const firstCandidates = faces
+    .filter((face) => face.direction === firstDirection)
+    .map((face) => createFaceKey(face.blockId, face.direction))
+    .sort((left, right) => left.localeCompare(right))
+  const secondCandidates = faces
+    .filter((face) => face.direction === secondDirection)
+    .map((face) => createFaceKey(face.blockId, face.direction))
+    .sort((left, right) => left.localeCompare(right))
+  const wildcardFaceKeys = [
+    pickDeterministicFaceKey(firstCandidates, random),
+    pickDeterministicFaceKey(secondCandidates, random),
+  ]
+    .filter((faceKey): faceKey is string => Boolean(faceKey))
+    .slice(0, WILDCARD_FACE_COUNT)
+
+  return wildcardFaceKeys.sort((left, right) => left.localeCompare(right))
+}
+
+function pickDeterministicFaceKey(faceKeys: string[], random: () => number): string | null {
+  if (faceKeys.length === 0) {
+    return null
+  }
+
+  return faceKeys[Math.floor(random() * faceKeys.length)] ?? null
 }
 
 function restoreDailyProgress() {
@@ -493,6 +548,7 @@ const state: AppState = {
   historySheetOpen: false,
   resolvingTurn: false,
   legalMoveHintFaces: [],
+  wildcardFaceKeys: getWildcardFaceKeysForSeed(initialGameIdentity.seed),
   interactionHintState: 'visible',
   gameSeed: initialGameIdentity.seed,
   gameLabel: initialGameIdentity.label,
@@ -834,6 +890,7 @@ function renderCube() {
     state.yawRadians,
     state.pitchRadians,
     state.legalMoveHintFaces,
+    state.wildcardFaceKeys,
   )
 }
 
@@ -866,7 +923,7 @@ function updateSelectionUi() {
 }
 
 function renderWordReadout(): string {
-  const { word, length, validWord } = currentWordState()
+  const { displayChars, displayWord, length, validWord } = currentWordState()
   const classes = ['word-readout']
 
   if (length === 0) {
@@ -883,9 +940,18 @@ function renderWordReadout(): string {
 
   return `
     <div class="${classes.join(' ')}">
-      <span class="word-readout-text">${word || '4+ letters'}</span>
+      <span class="word-readout-text">${displayWord ? renderWordReadoutText(displayChars) : '4+ letters'}</span>
     </div>
   `
+}
+
+function renderWordReadoutText(displayChars: WordReadoutChar[]): string {
+  return displayChars
+    .map(
+      (character) =>
+        `<span class="word-readout-char${character.wildcardResolved ? ' is-wildcard-resolved' : ''}${character.wildcardPlaceholder ? ' is-wildcard-placeholder' : ''}">${character.value}</span>`,
+    )
+    .join('')
 }
 
 function renderInteractionHint(): string {
@@ -977,10 +1043,11 @@ function submitSelection() {
   }
 
   const faceMap = buildFaceMap(getExposedFaces(state.cube))
-  const word = selectionToWord(state.selectedFaces, faceMap)
-  const hintedSelection = state.hintedWords.has(word)
+  const currentWord = resolveCurrentSelectionWord(faceMap)
+  const submittedWord = currentWord.submittedWord ?? currentWord.rawWord
+  const hintedSelection = currentWord.submittedWord ? state.hintedWords.has(currentWord.submittedWord) : false
 
-  if (word.length < 4) {
+  if (currentWord.length < 4) {
     state.selectedFaces = []
     clearLegalMoveHints()
     state.status = 'Words must be at least 4 letters.'
@@ -989,25 +1056,25 @@ function submitSelection() {
     return
   }
 
-  if (!state.dictionary.has(word)) {
+  if (!currentWord.validWord || !currentWord.submittedWord) {
     state.selectedFaces = []
     clearLegalMoveHints()
-    state.status = `${word} is not in the dictionary.`
+    state.status = `${submittedWord} is not in the dictionary.`
     renderShell()
     renderCube()
     return
   }
 
-  const points = hintedSelection ? null : scoreWord(word)
+  const points = hintedSelection ? null : scoreWord(currentWord.submittedWord)
 
   if (points !== null) {
     state.score += points
-    state.scoreEvents = [{ label: word, points }, ...state.scoreEvents]
+    state.scoreEvents = [{ label: currentWord.submittedWord, points }, ...state.scoreEvents]
   }
 
   const selectedFaces = [...state.selectedFaces]
   const hasBlockExtraction = cubeView?.prepareBlockExtraction(selectedFaces) ?? false
-  state.foundWords = [{ word, points }, ...state.foundWords]
+  state.foundWords = [{ word: currentWord.submittedWord, points }, ...state.foundWords]
   scheduleInteractionHintDismissal()
   state.cube = removeSelectedBlocks(state.cube, selectedFaces, faceMap)
   state.selectedFaces = []
@@ -1015,8 +1082,8 @@ function submitSelection() {
   state.resolvingTurn = true
   state.status =
     points === null
-      ? `${word} accepted as a hint. No score awarded. Selected blocks removed.`
-      : `${word} accepted for ${points} point${points === 1 ? '' : 's'}. Selected blocks removed.`
+      ? `${currentWord.submittedWord} accepted as a hint. No score awarded. Selected blocks removed.`
+      : `${currentWord.submittedWord} accepted for ${points} point${points === 1 ? '' : 's'}. Selected blocks removed.`
   renderShell()
   renderCube()
 
@@ -1034,13 +1101,145 @@ function submitSelection() {
   }
 }
 
-function currentWordState(): { word: string; length: number; validWord: boolean } {
+function currentWordState(): CurrentWordState {
   const faceMap = buildFaceMap(getExposedFaces(state.cube))
-  const word = selectionToWord(state.selectedFaces, faceMap)
+  return resolveCurrentSelectionWord(faceMap)
+}
+
+function resolveCurrentSelectionWord(faceMap: Map<string, FaceRef>): CurrentWordState {
+  const wildcardFaceKeys = new Set(state.wildcardFaceKeys)
+  const rawLetters = state.selectedFaces.map((faceKey) =>
+    getDisplayedFaceLetter(faceKey, faceMap, wildcardFaceKeys),
+  )
+  const rawWord = rawLetters.join('')
+  const length = rawWord.length
+
+  if (length === 0) {
+    return {
+      displayChars: [],
+      displayWord: '',
+      rawWord,
+      submittedWord: null,
+      length,
+      validWord: false,
+    }
+  }
+
+  if (!state.dictionary || length < 4) {
+    return {
+      displayChars: rawLetters.map((letter, index) => ({
+        value: letter,
+        wildcardResolved: false,
+        wildcardPlaceholder: wildcardFaceKeys.has(state.selectedFaces[index] ?? ''),
+      })),
+      displayWord: rawWord,
+      rawWord,
+      submittedWord: null,
+      length,
+      validWord: false,
+    }
+  }
+
+  const resolvedWord =
+    (state.popularDictionary &&
+      resolveSelectionAgainstDictionary(
+        state.selectedFaces,
+        faceMap,
+        wildcardFaceKeys,
+        state.popularDictionary,
+        state.popularPrefixes,
+      )) ??
+    resolveSelectionAgainstDictionary(
+      state.selectedFaces,
+      faceMap,
+      wildcardFaceKeys,
+      state.dictionary,
+      state.dictionaryPrefixes,
+    )
+  const displayWord = resolvedWord ?? rawWord
+
   return {
-    word,
-    length: word.length,
-    validWord: Boolean(state.dictionary && word.length >= 4 && state.dictionary.has(word)),
+    displayChars: displayWord.split('').map((letter, index) => ({
+      value: letter,
+      wildcardResolved: Boolean(resolvedWord && wildcardFaceKeys.has(state.selectedFaces[index] ?? '')),
+      wildcardPlaceholder: false,
+    })),
+    displayWord,
+    rawWord,
+    submittedWord: resolvedWord,
+    length,
+    validWord: Boolean(resolvedWord),
+  }
+}
+
+function getDisplayedFaceLetter(
+  faceKey: string,
+  faceMap: Map<string, FaceRef>,
+  wildcardFaceKeys: ReadonlySet<string>,
+): string {
+  if (wildcardFaceKeys.has(faceKey)) {
+    return WILDCARD_CHARACTER
+  }
+
+  return faceMap.get(faceKey)?.letter ?? ''
+}
+
+function resolveSelectionAgainstDictionary(
+  selection: string[],
+  faceMap: Map<string, FaceRef>,
+  wildcardFaceKeys: ReadonlySet<string>,
+  dictionary: Set<string>,
+  prefixes: Set<string>,
+): string | null {
+  if (selection.length === 0) {
+    return null
+  }
+
+  const wildcardSelection = selection.map((faceKey) => wildcardFaceKeys.has(faceKey))
+  const hasWildcard = wildcardSelection.some(Boolean)
+
+  if (!hasWildcard) {
+    const word = selectionToWord(selection, faceMap)
+    return dictionary.has(word) ? word : null
+  }
+
+  return search(0, '')
+
+  function search(index: number, prefix: string): string | null {
+    if (index >= selection.length) {
+      return dictionary.has(prefix) ? prefix : null
+    }
+
+    if (!wildcardSelection[index]) {
+      const letter = faceMap.get(selection[index])?.letter ?? ''
+      const nextPrefix = prefix + letter
+
+      if (index < selection.length - 1 && !prefixes.has(nextPrefix)) {
+        return null
+      }
+
+      return search(index + 1, nextPrefix)
+    }
+
+    for (const letter of SEARCH_ALPHABET) {
+      const nextPrefix = prefix + letter
+
+      if (index < selection.length - 1) {
+        if (!prefixes.has(nextPrefix)) {
+          continue
+        }
+      } else if (!dictionary.has(nextPrefix)) {
+        continue
+      }
+
+      const match = search(index + 1, nextPrefix)
+
+      if (match) {
+        return match
+      }
+    }
+
+    return null
   }
 }
 
@@ -1459,7 +1658,10 @@ function updateGameOverState(options: { delayOverlay?: boolean } = {}) {
   if (remainingBlocks === 0) {
     awardCubeClearBonus()
     nextReason = 'cleared'
-  } else if (state.dictionary && !findAnyLegalWord(state.cube, state.dictionary, state.dictionaryPrefixes)) {
+  } else if (
+    state.dictionary &&
+    !findAnyLegalWord(state.cube, state.dictionary, state.dictionaryPrefixes, new Set(state.wildcardFaceKeys))
+  ) {
     nextReason = 'no_more_words'
   }
 
@@ -1497,15 +1699,18 @@ function findAnyLegalWord(
   cube: CubeState,
   dictionary: Set<string>,
   prefixes: Set<string>,
+  wildcardFaceKeys: ReadonlySet<string>,
 ): { word: string; faceKeys: string[] } | null {
   const faces = getExposedFaces(cube)
   const faceMap = buildFaceMap(faces)
 
   for (const startFace of faces) {
-    const result = search([startFace.key], startFace.letter)
+    for (const letter of getWildcardSearchLetters(startFace, wildcardFaceKeys)) {
+      const result = search([startFace.key], letter)
 
-    if (result) {
-      return result
+      if (result) {
+        return result
+      }
     }
   }
 
@@ -1528,10 +1733,12 @@ function findAnyLegalWord(
         continue
       }
 
-      const result = search([...path, candidate.key], currentWord + candidate.letter)
+      for (const letter of getWildcardSearchLetters(candidate, wildcardFaceKeys)) {
+        const result = search([...path, candidate.key], currentWord + letter)
 
-      if (result) {
-        return result
+        if (result) {
+          return result
+        }
       }
     }
 
@@ -1798,6 +2005,7 @@ function drawShareCubeRender(context: CanvasRenderingContext2D, cube: CubeState)
     pitchRadians: (22 * Math.PI) / 180,
     cameraRadius: 7.2,
     selectedFaceKeys: getShareAccentFaceKeys(cube),
+    wildcardFaceKeys: getWildcardFaceKeysForSeed(state.gameSeed),
   })
 
   context.save()
@@ -2160,7 +2368,12 @@ function rapidSolve() {
   while (safety < 500) {
     safety += 1
 
-    const result = findAnyLegalWord(state.cube, state.dictionary, state.dictionaryPrefixes)
+    const result = findAnyLegalWord(
+      state.cube,
+      state.dictionary,
+      state.dictionaryPrefixes,
+      new Set(state.wildcardFaceKeys),
+    )
 
     if (!result) {
       updateGameOverState()
@@ -2210,6 +2423,7 @@ function resetGameForSeed(seed: number, label: string, dateKey: string | null, s
   state.gameLabel = label
   state.gameDateKey = dateKey
   state.cube = createCubeForSeed(seed)
+  state.wildcardFaceKeys = getWildcardFaceKeysForSeed(seed)
   state.selectedFaces = []
   clearLegalMoveHints()
   state.score = 0
@@ -2235,9 +2449,10 @@ function applyHint() {
     return
   }
 
+  const wildcardFaceKeys = new Set(state.wildcardFaceKeys)
   const hint =
-    findShortestLegalWord(state.cube, state.popularDictionary, state.popularPrefixes) ??
-    findShortestLegalWord(state.cube, state.dictionary, state.dictionaryPrefixes)
+    findShortestLegalWord(state.cube, state.popularDictionary, state.popularPrefixes, wildcardFaceKeys) ??
+    findShortestLegalWord(state.cube, state.dictionary, state.dictionaryPrefixes, wildcardFaceKeys)
 
   if (!hint) {
     updateGameOverState()
@@ -2262,13 +2477,16 @@ function findShortestLegalWord(
   cube: CubeState,
   dictionary: Set<string>,
   prefixes: Set<string>,
+  wildcardFaceKeys: ReadonlySet<string>,
 ): { word: string; faceKeys: string[] } | null {
   const faces = getExposedFaces(cube)
   const faceMap = buildFaceMap(faces)
-  const queue = faces.map((face) => ({
-    path: [face.key],
-    word: face.letter,
-  }))
+  const queue = faces.flatMap((face) =>
+    getWildcardSearchLetters(face, wildcardFaceKeys).map((letter) => ({
+      path: [face.key],
+      word: letter,
+    })),
+  )
 
   while (queue.length > 0) {
     const current = queue.shift()
@@ -2293,12 +2511,22 @@ function findShortestLegalWord(
         continue
       }
 
-      queue.push({
-        path: [...current.path, candidate.key],
-        word: current.word + candidate.letter,
-      })
+      for (const letter of getWildcardSearchLetters(candidate, wildcardFaceKeys)) {
+        queue.push({
+          path: [...current.path, candidate.key],
+          word: current.word + letter,
+        })
+      }
     }
   }
 
   return null
+}
+
+function getWildcardSearchLetters(face: FaceRef, wildcardFaceKeys: ReadonlySet<string>): string[] {
+  if (wildcardFaceKeys.has(face.key)) {
+    return SEARCH_ALPHABET
+  }
+
+  return [face.letter]
 }

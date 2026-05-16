@@ -19,6 +19,8 @@ const BLOCK_EXTRACTION_STAGGER_MS = 70
 const BLOCK_EXTRACTION_SHRINK_MS = 180
 export const CUBE_LETTER_FONT_FAMILY = '"Libre Baskerville"'
 type FaceTextureState = 'normal' | 'selected' | 'legal'
+const WILDCARD_SYMBOL = '★'
+const WILDCARD_COLOR = '#16212a'
 
 export class CubeView {
   private readonly container: HTMLElement
@@ -37,6 +39,7 @@ export class CubeView {
   private currentCube: CubeState | null = null
   private selectedFaceKeys = new Set<string>()
   private legalHintFaceKeys = new Set<string>()
+  private wildcardFaceKeys = new Set<string>()
   private yawRadians = 0
   private pitchRadians = 0
   private dragYawOffset = 0
@@ -110,10 +113,12 @@ export class CubeView {
     yawRadians: number,
     pitchRadians: number,
     legalHintFaceKeys: string[] = [],
+    wildcardFaceKeys: string[] = [],
   ) {
     this.yawRadians = yawRadians
     this.pitchRadians = pitchRadians
     this.applyYawRotation()
+    this.wildcardFaceKeys = new Set(wildcardFaceKeys)
     if (this.currentCube !== cube) {
       this.rebuildFaces(cube)
       this.currentCube = cube
@@ -144,7 +149,7 @@ export class CubeView {
     this.faceMeshes.forEach((mesh) => {
       const material = mesh.material as THREE.MeshBasicMaterial
       material.map = this.getLetterTexture(
-        mesh.userData.letter as string,
+        mesh.userData.displayLetter as string,
         mesh.userData.direction as Direction,
         getFaceTextureState(Boolean(mesh.userData.selected), Boolean(mesh.userData.legalHint)),
       )
@@ -195,7 +200,7 @@ export class CubeView {
           block.y,
           block.z,
           direction,
-          block.letters[direction],
+          getFaceDisplayLetter(block.letters[direction], this.wildcardFaceKeys.has(faceKey)),
           selectedFaceKeys.has(faceKey),
         )
         mesh.position.sub(blockGroup.position)
@@ -407,10 +412,17 @@ export class CubeView {
 
     for (const face of getExposedFaces(cube)) {
       const faceKey = createFaceKey(face.blockId, face.direction)
-      const mesh = this.createFaceMesh(face.x, face.y, face.z, face.direction, face.letter, false)
+      const mesh = this.createFaceMesh(
+        face.x,
+        face.y,
+        face.z,
+        face.direction,
+        getFaceDisplayLetter(face.letter, this.wildcardFaceKeys.has(faceKey)),
+        false,
+      )
       mesh.userData.faceKey = faceKey
       mesh.userData.blockId = face.blockId
-      mesh.userData.letter = face.letter
+      mesh.userData.displayLetter = getFaceDisplayLetter(face.letter, this.wildcardFaceKeys.has(faceKey))
       mesh.userData.direction = face.direction
       mesh.userData.selected = false
       mesh.userData.legalHint = false
@@ -458,7 +470,7 @@ export class CubeView {
       const nextLegalHint = !nextSelected && nextLegalHintFaceKeys.has(key)
       const material = mesh.material as THREE.MeshBasicMaterial
       material.map = this.getLetterTexture(
-        mesh.userData.letter as string,
+        mesh.userData.displayLetter as string,
         mesh.userData.direction as Direction,
         getFaceTextureState(nextSelected, nextLegalHint),
       )
@@ -519,7 +531,11 @@ export class CubeView {
     return mesh
   }
 
-  private getLetterTexture(letter: string, direction: Direction, textureState: FaceTextureState): THREE.CanvasTexture {
+  private getLetterTexture(
+    letter: string,
+    direction: Direction,
+    textureState: FaceTextureState,
+  ): THREE.CanvasTexture {
     const cacheKey = `${letter}:${direction}:${textureState}`
     const cachedTexture = this.textureCache.get(cacheKey)
 
@@ -665,6 +681,7 @@ export type CubeShareRenderOptions = {
   yawRadians: number
   pitchRadians: number
   selectedFaceKeys?: string[]
+  wildcardFaceKeys?: string[]
   cameraRadius?: number
 }
 
@@ -692,16 +709,18 @@ export function renderCubeShareCanvas(cube: CubeState, options: CubeShareRenderO
   scene.add(cubeRoot)
 
   const selectedFaceKeys = new Set(options.selectedFaceKeys ?? [])
+  const wildcardFaceKeys = new Set(options.wildcardFaceKeys ?? [])
 
   for (const face of getExposedFaces(cube)) {
+    const faceKey = createFaceKey(face.blockId, face.direction)
     cubeRoot.add(
       createStandaloneFaceMesh(
         face.x,
         face.y,
         face.z,
         face.direction,
-        face.letter,
-        selectedFaceKeys.has(createFaceKey(face.blockId, face.direction)),
+        getFaceDisplayLetter(face.letter, wildcardFaceKeys.has(faceKey)),
+        selectedFaceKeys.has(faceKey),
       ),
     )
   }
@@ -828,6 +847,10 @@ function createStandaloneFaceMesh(
   return mesh
 }
 
+function getFaceDisplayLetter(letter: string, wildcard: boolean): string {
+  return wildcard ? WILDCARD_SYMBOL : letter
+}
+
 function disposeObjectTree(root: THREE.Object3D) {
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh || object instanceof THREE.LineSegments)) {
@@ -890,7 +913,11 @@ function createBlockEdgeMesh(): THREE.LineSegments {
   return new THREE.LineSegments(geometry, material)
 }
 
-function createLetterTexture(letter: string, direction: Direction, textureState: FaceTextureState): THREE.CanvasTexture {
+function createLetterTexture(
+  letter: string,
+  direction: Direction,
+  textureState: FaceTextureState,
+): THREE.CanvasTexture {
   const canvas = document.createElement('canvas')
   canvas.width = 128
   canvas.height = 128
@@ -929,11 +956,14 @@ function createLetterTexture(letter: string, direction: Direction, textureState:
     }
   }
 
-  context.fillStyle = '#16212a'
-  context.font = `700 72px ${CUBE_LETTER_FONT_FAMILY}, Georgia, serif`
+  const wildcardGlyph = letter === WILDCARD_SYMBOL
+  context.fillStyle = wildcardGlyph ? WILDCARD_COLOR : '#16212a'
+  context.font = wildcardGlyph
+    ? "800 70px Manrope, 'Segoe UI', sans-serif"
+    : `700 72px ${CUBE_LETTER_FONT_FAMILY}, Georgia, serif`
   context.textAlign = 'center'
   context.textBaseline = 'middle'
-  context.fillText(letter, 64, 68)
+  context.fillText(letter, 64, wildcardGlyph ? 66 : 68)
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace

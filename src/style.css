@@ -475,6 +475,14 @@ p {
   color: var(--text-strong);
 }
 
+.word-readout-char.is-wildcard-resolved {
+  color: var(--accent);
+}
+
+.word-readout-char.is-wildcard-placeholder {
+  color: var(--accent);
+}
+
 .word-readout.is-empty .word-readout-text {
   font-size: 0.96rem;
   font-weight: 700;
