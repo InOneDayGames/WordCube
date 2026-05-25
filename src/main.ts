@@ -3,15 +3,16 @@ import {
   buildFaceMap,
   canAppendFace,
   countRemainingBlocks,
-  CUBE_SIZE,
   createFaceKey,
   createCubeState,
   createSeededRandom,
+  DEFAULT_CUBE_DIMENSIONS,
   DIRECTIONS,
   type FaceRef,
   getExposedFaces,
   removeSelectedBlocks,
   selectionToWord,
+  type CubeDimensions,
   type CubeState,
 } from './cube'
 import { CUBE_LETTER_FONT_FAMILY, CubeView, renderCubeShareCanvas } from './cubeView'
@@ -21,6 +22,7 @@ import { APP_VERSION } from './version'
 
 type GameOverReason = 'cleared' | 'no_more_words'
 type InteractionHintState = 'visible' | 'dismissing' | 'hidden'
+type GameMode = 'classic' | 'wildcard' | 'mini'
 type GameIdentity = {
   label: string
   seed: number
@@ -61,7 +63,8 @@ type StarterDebugState = {
   index: number
 }
 type SavedDailyProgress = {
-  version: 2
+  version: 8
+  mode: GameMode
   seed: number
   label: string
   dateKey: string
@@ -97,6 +100,7 @@ type AppState = {
   resolvingTurn: boolean
   legalMoveHintFaces: string[]
   wildcardFaceKeys: string[]
+  gameMode: GameMode
   interactionHintState: InteractionHintState
   gameSeed: number
   gameLabel: string
@@ -113,7 +117,7 @@ const DAILY_PUZZLE_MANIFEST_URL = `${import.meta.env.BASE_URL}daily-puzzles.json
 const DAILY_PROGRESS_STORAGE_PREFIX = 'word-cube:daily-progress:v1'
 const DAILY_PUZZLE_TIME_ZONE = 'Europe/London'
 const DAILY_PUZZLE_VERSION = 1
-const SAVED_DAILY_PROGRESS_VERSION = 2
+const SAVED_DAILY_PROGRESS_VERSION = 8
 const DAILY_PUZZLE_REFRESH_INTERVAL_HOURS = 24
 const DEBUG_TOOLS_ENABLED = import.meta.env.DEV
 const GAME_OVER_OVERLAY_DELAY_BY_REASON: Record<GameOverReason, number> = {
@@ -126,17 +130,27 @@ const SHARE_IMAGE_HEIGHT = 1350
 const SHARE_SITE_LABEL = 'wordcube.cc'
 const INTERACTION_HINT_DISMISS_DELAY_MS = 500
 const INTERACTION_HINT_FADE_MS = 900
-const WILDCARD_FACE_COUNT = 2
+const DEFAULT_GAME_MODE: GameMode = 'mini'
 const WILDCARD_CHARACTER = '★'
 const SEARCH_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
+const GAME_MODE_CONFIG: Record<
+  GameMode,
+  { wildcardFaceCount: number; cubeDimensions: CubeDimensions }
+> = {
+  classic: { wildcardFaceCount: 0, cubeDimensions: DEFAULT_CUBE_DIMENSIONS },
+  wildcard: { wildcardFaceCount: 2, cubeDimensions: DEFAULT_CUBE_DIMENSIONS },
+  mini: { wildcardFaceCount: 0, cubeDimensions: { x: 2, y: 2, z: 2 } },
+}
 
 function getInitialGameIdentity(): GameIdentity {
   removeLegacyGameSeedFromUrl()
   return createDailyGameIdentity(new Date())
 }
 
-function createCubeForSeed(seed: number): CubeState {
+function createCubeForSeed(seed: number, mode: GameMode): CubeState {
+  const modeConfig = GAME_MODE_CONFIG[mode] ?? GAME_MODE_CONFIG.classic
   return createCubeState({
+    dimensions: modeConfig.cubeDimensions,
     random: createSeededRandom(seed),
   })
 }
@@ -180,12 +194,18 @@ function applyCuratedDailyPuzzle(manifest: DailyPuzzleManifest | null) {
 
   state.gameSeed = puzzle.seed
   state.gameLabel = puzzle.label ?? formatDailyDateLabel(state.gameDateKey)
-  state.cube = createCubeForSeed(puzzle.seed)
-  state.wildcardFaceKeys = getWildcardFaceKeysForSeed(puzzle.seed)
+  state.cube = createCubeForSeed(puzzle.seed, state.gameMode)
+  state.wildcardFaceKeys = getWildcardFaceKeysForSeed(puzzle.seed, state.gameMode)
 }
 
-function getWildcardFaceKeysForSeed(seed: number): string[] {
-  const starterCube = createCubeForSeed(seed)
+function getWildcardFaceKeysForSeed(seed: number, mode: GameMode): string[] {
+  const modeConfig = GAME_MODE_CONFIG[mode]
+
+  if (!modeConfig || modeConfig.wildcardFaceCount <= 0) {
+    return []
+  }
+
+  const starterCube = createCubeForSeed(seed, mode)
   const random = createSeededRandom((seed ^ 0x9e3779b9) >>> 0)
   const faces = getExposedFaces(starterCube)
   const oppositeLateralPairs = [
@@ -207,7 +227,7 @@ function getWildcardFaceKeysForSeed(seed: number): string[] {
     pickDeterministicFaceKey(secondCandidates, random),
   ]
     .filter((faceKey): faceKey is string => Boolean(faceKey))
-    .slice(0, WILDCARD_FACE_COUNT)
+    .slice(0, modeConfig.wildcardFaceCount)
 
   return wildcardFaceKeys.sort((left, right) => left.localeCompare(right))
 }
@@ -250,6 +270,7 @@ function saveDailyProgress() {
 
   const progress: SavedDailyProgress = {
     version: SAVED_DAILY_PROGRESS_VERSION,
+    mode: state.gameMode,
     seed: state.gameSeed,
     label: state.gameLabel,
     dateKey,
@@ -295,6 +316,10 @@ function parseSavedDailyProgress(value: unknown): SavedDailyProgress | null {
     return null
   }
 
+  if (!isGameMode(value.mode) || value.mode !== state.gameMode) {
+    return null
+  }
+
   const seed = parseManifestSeed(value.seed)
 
   if (seed !== state.gameSeed || value.dateKey !== state.gameDateKey || typeof value.label !== 'string') {
@@ -320,6 +345,7 @@ function parseSavedDailyProgress(value: unknown): SavedDailyProgress | null {
 
   return {
     version: SAVED_DAILY_PROGRESS_VERSION,
+    mode: value.mode,
     seed,
     label: value.label,
     dateKey: value.dateKey,
@@ -339,7 +365,7 @@ function getDailyProgressStorageKey(): string | null {
     return null
   }
 
-  return `${DAILY_PROGRESS_STORAGE_PREFIX}:${state.gameDateKey}:${seedToGameId(state.gameSeed)}`
+  return `${DAILY_PROGRESS_STORAGE_PREFIX}:${state.gameDateKey}:${state.gameMode}:${seedToGameId(state.gameSeed)}`
 }
 
 function getSavedInteractionHintState(): InteractionHintState {
@@ -351,7 +377,15 @@ function getSavedInteractionHintState(): InteractionHintState {
 }
 
 function isCubeState(value: unknown): value is CubeState {
-  if (!isRecord(value) || !Array.isArray(value.blocks)) {
+  if (!isRecord(value) || !isRecord(value.dimensions) || !Array.isArray(value.blocks)) {
+    return false
+  }
+
+  if (
+    typeof value.dimensions.x !== 'number' ||
+    typeof value.dimensions.y !== 'number' ||
+    typeof value.dimensions.z !== 'number'
+  ) {
     return false
   }
 
@@ -397,6 +431,10 @@ function isGameOverReason(value: unknown): value is GameOverReason | null {
 
 function isInteractionHintState(value: unknown): value is InteractionHintState {
   return value === 'visible' || value === 'dismissing' || value === 'hidden'
+}
+
+function isGameMode(value: unknown): value is GameMode {
+  return value === 'classic' || value === 'wildcard' || value === 'mini'
 }
 
 function parseDailyPuzzleManifest(value: unknown): DailyPuzzleManifest | null {
@@ -528,7 +566,7 @@ if (!app) {
 const appRoot = app
 const initialGameIdentity = getInitialGameIdentity()
 const state: AppState = {
-  cube: createCubeForSeed(initialGameIdentity.seed),
+  cube: createCubeForSeed(initialGameIdentity.seed, DEFAULT_GAME_MODE),
   selectedFaces: [],
   dictionary: null,
   popularDictionary: null,
@@ -548,7 +586,8 @@ const state: AppState = {
   historySheetOpen: false,
   resolvingTurn: false,
   legalMoveHintFaces: [],
-  wildcardFaceKeys: getWildcardFaceKeysForSeed(initialGameIdentity.seed),
+  wildcardFaceKeys: getWildcardFaceKeysForSeed(initialGameIdentity.seed, DEFAULT_GAME_MODE),
+  gameMode: DEFAULT_GAME_MODE,
   interactionHintState: 'visible',
   gameSeed: initialGameIdentity.seed,
   gameLabel: initialGameIdentity.label,
@@ -1877,7 +1916,7 @@ async function createResultsShareImageBlob(): Promise<Blob> {
   }
 
   const maskedLongestWord = maskWord(getLongestFoundWord())
-  const starterCube = createCubeForSeed(state.gameSeed)
+  const starterCube = createCubeForSeed(state.gameSeed, state.gameMode)
   const pageGradient = context.createLinearGradient(0, 0, SHARE_IMAGE_WIDTH, SHARE_IMAGE_HEIGHT)
   pageGradient.addColorStop(0, '#f4f8ff')
   pageGradient.addColorStop(1, '#e6edf8')
@@ -2005,7 +2044,7 @@ function drawShareCubeRender(context: CanvasRenderingContext2D, cube: CubeState)
     pitchRadians: (22 * Math.PI) / 180,
     cameraRadius: 7.2,
     selectedFaceKeys: getShareAccentFaceKeys(cube),
-    wildcardFaceKeys: getWildcardFaceKeysForSeed(state.gameSeed),
+    wildcardFaceKeys: getWildcardFaceKeysForSeed(state.gameSeed, state.gameMode),
   })
 
   context.save()
@@ -2017,9 +2056,11 @@ function drawShareCubeRender(context: CanvasRenderingContext2D, cube: CubeState)
 }
 
 function getShareAccentFaceKeys(cube: CubeState): string[] {
-  const center = Math.floor(CUBE_SIZE / 2)
+  const centerX = Math.floor(cube.dimensions.x / 2)
+  const centerY = Math.floor(cube.dimensions.y / 2)
+  const frontZ = cube.dimensions.z - 1
   const accentBlock = cube.blocks.find(
-    (block) => !block.removed && block.x === center && block.y === center && block.z === CUBE_SIZE - 1,
+    (block) => !block.removed && block.x === centerX && block.y === centerY && block.z === frontZ,
   )
 
   if (accentBlock) {
@@ -2422,8 +2463,8 @@ function resetGameForSeed(seed: number, label: string, dateKey: string | null, s
   state.gameSeed = seed
   state.gameLabel = label
   state.gameDateKey = dateKey
-  state.cube = createCubeForSeed(seed)
-  state.wildcardFaceKeys = getWildcardFaceKeysForSeed(seed)
+  state.cube = createCubeForSeed(seed, state.gameMode)
+  state.wildcardFaceKeys = getWildcardFaceKeysForSeed(seed, state.gameMode)
   state.selectedFaces = []
   clearLegalMoveHints()
   state.score = 0

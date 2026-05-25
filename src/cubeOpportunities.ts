@@ -349,6 +349,7 @@ function removeBlocks(cube: CubeState, blockIds: string[]): CubeState {
   const removedBlockIds = new Set(blockIds)
 
   return {
+    dimensions: cube.dimensions,
     blocks: cube.blocks.map((block) =>
       removedBlockIds.has(block.id)
         ? {

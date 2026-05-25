@@ -1,4 +1,5 @@
 export const CUBE_SIZE = 3
+export const DEFAULT_CUBE_DIMENSIONS = { x: CUBE_SIZE, y: CUBE_SIZE, z: CUBE_SIZE } as const
 
 export const DIRECTIONS = ['px', 'nx', 'py', 'ny', 'pz', 'nz'] as const
 export const DEFAULT_LETTER_WEIGHTS: Array<[string, number]> = [
@@ -40,6 +41,16 @@ const VOWELS = new Set(['A', 'E', 'I', 'O', 'U'])
 export type Direction = (typeof DIRECTIONS)[number]
 export type RandomSource = () => number
 export type LetterWeights = Array<[string, number]>
+export type CubeDimensions = {
+  x: number
+  y: number
+  z: number
+}
+export type BlockCoordinate = {
+  x: number
+  y: number
+  z: number
+}
 type WeightedLetterBag = {
   entries: Array<{ letter: string; cumulativeWeight: number }>
   totalWeight: number
@@ -47,6 +58,8 @@ type WeightedLetterBag = {
 export type CubeGenerationOptions = {
   letterWeights?: LetterWeights
   random?: RandomSource
+  dimensions?: CubeDimensions
+  includedBlocks?: BlockCoordinate[]
 }
 
 export type Block = {
@@ -70,6 +83,7 @@ export type FaceRef = {
 }
 
 export type CubeState = {
+  dimensions: CubeDimensions
   blocks: Block[]
 }
 
@@ -93,12 +107,18 @@ const DIRECTION_VECTORS: Record<Direction, DirectionVector> = {
 export function createCubeState(options: CubeGenerationOptions = {}): CubeState {
   const letterWeights = options.letterWeights ?? DEFAULT_LETTER_WEIGHTS
   const random = options.random ?? Math.random
+  const dimensions = normalizeCubeDimensions(options.dimensions)
+  const includedBlockKeys = options.includedBlocks ? new Set(options.includedBlocks.map(blockCoordinateKey)) : null
   const letterBag = createWeightedLetterBag(letterWeights)
   const blocks: Block[] = []
 
-  for (let x = 0; x < CUBE_SIZE; x += 1) {
-    for (let y = 0; y < CUBE_SIZE; y += 1) {
-      for (let z = 0; z < CUBE_SIZE; z += 1) {
+  for (let x = 0; x < dimensions.x; x += 1) {
+    for (let y = 0; y < dimensions.y; y += 1) {
+      for (let z = 0; z < dimensions.z; z += 1) {
+        if (includedBlockKeys && !includedBlockKeys.has(blockCoordinateKey({ x, y, z }))) {
+          continue
+        }
+
         blocks.push({
           id: blockKey(x, y, z),
           x,
@@ -118,7 +138,19 @@ export function createCubeState(options: CubeGenerationOptions = {}): CubeState 
     }
   }
 
-  return { blocks }
+  return { dimensions, blocks }
+}
+
+function normalizeCubeDimensions(dimensions: CubeDimensions | undefined): CubeDimensions {
+  if (!dimensions) {
+    return { ...DEFAULT_CUBE_DIMENSIONS }
+  }
+
+  return {
+    x: Math.max(1, Math.floor(dimensions.x)),
+    y: Math.max(1, Math.floor(dimensions.y)),
+    z: Math.max(1, Math.floor(dimensions.z)),
+  }
 }
 
 export function getExposedFaces(cube: CubeState): FaceRef[] {
@@ -180,6 +212,7 @@ export function removeSelectedBlocks(cube: CubeState, selection: string[], faceM
   )
 
   return {
+    dimensions: cube.dimensions,
     blocks: cube.blocks.map((block) =>
       blockIds.has(block.id)
         ? {
@@ -638,6 +671,10 @@ export function createFaceKey(blockId: string, direction: Direction): string {
 
 function blockKey(x: number, y: number, z: number): string {
   return `${x},${y},${z}`
+}
+
+function blockCoordinateKey(coordinate: BlockCoordinate): string {
+  return blockKey(coordinate.x, coordinate.y, coordinate.z)
 }
 
 function cornerKey(x: number, y: number, z: number): string {

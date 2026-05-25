@@ -1,5 +1,13 @@
 import * as THREE from 'three'
-import { CUBE_SIZE, DIRECTIONS, createFaceKey, getExposedFaces, type Block, type CubeState, type Direction } from './cube'
+import {
+  DIRECTIONS,
+  createFaceKey,
+  getExposedFaces,
+  type Block,
+  type CubeDimensions,
+  type CubeState,
+  type Direction,
+} from './cube'
 
 const CELL_SIZE = 1
 const BLOCK_BODY_SIZE = 0.995
@@ -178,6 +186,7 @@ export class CubeView {
     this.cancelRemovalAnimation()
     this.disposeExtractionGroup()
 
+    const currentCube = this.currentCube
     const selectedFaceKeys = new Set(faceKeys)
     const selectedBlockIds = new Set(selectedBlocks.map((block) => block.id))
     const selectedBlocksByPosition = new Map(selectedBlocks.map((block) => [blockPositionKey(block), block]))
@@ -185,7 +194,7 @@ export class CubeView {
 
     for (const block of selectedBlocks) {
       const blockGroup = new THREE.Group()
-      blockGroup.position.copy(gridToWorldVector(block.x, block.y, block.z))
+      blockGroup.position.copy(gridToWorldVector(block.x, block.y, block.z, currentCube.dimensions))
       blockGroup.add(createBlockBodyMesh())
       blockGroup.add(createBlockEdgeMesh())
 
@@ -202,6 +211,7 @@ export class CubeView {
           direction,
           getFaceDisplayLetter(block.letters[direction], this.wildcardFaceKeys.has(faceKey)),
           selectedFaceKeys.has(faceKey),
+          currentCube.dimensions,
         )
         mesh.position.sub(blockGroup.position)
         blockGroup.add(mesh)
@@ -217,7 +227,7 @@ export class CubeView {
     }
 
     const centroid = selectedBlocks.reduce(
-      (sum, block) => sum.add(gridToWorldVector(block.x, block.y, block.z)),
+      (sum, block) => sum.add(gridToWorldVector(block.x, block.y, block.z, currentCube.dimensions)),
       new THREE.Vector3(),
     ).divideScalar(selectedBlocks.length)
     const extractionVector = centroid.clone()
@@ -419,6 +429,7 @@ export class CubeView {
         face.direction,
         getFaceDisplayLetter(face.letter, this.wildcardFaceKeys.has(faceKey)),
         false,
+        cube.dimensions,
       )
       mesh.userData.faceKey = faceKey
       mesh.userData.blockId = face.blockId
@@ -490,6 +501,7 @@ export class CubeView {
     direction: Direction,
     letter: string,
     selected: boolean,
+    dimensions: CubeDimensions,
   ): THREE.Mesh {
     const geometry = new THREE.PlaneGeometry(FACE_SIZE, FACE_SIZE)
     const material = new THREE.MeshBasicMaterial({
@@ -499,7 +511,7 @@ export class CubeView {
     })
 
     const mesh = new THREE.Mesh(geometry, material)
-    const center = gridToWorld(x, y, z)
+    const center = gridToWorld(x, y, z, dimensions)
     const offset = directionOffset(direction)
 
     mesh.position.set(
@@ -721,6 +733,7 @@ export function renderCubeShareCanvas(cube: CubeState, options: CubeShareRenderO
         face.direction,
         getFaceDisplayLetter(face.letter, wildcardFaceKeys.has(faceKey)),
         selectedFaceKeys.has(faceKey),
+        cube.dimensions,
       ),
     )
   }
@@ -767,17 +780,19 @@ function getFaceTextureState(selected: boolean, legalHint: boolean): FaceTexture
   return 'normal'
 }
 
-function gridToWorld(x: number, y: number, z: number) {
-  const half = (CUBE_SIZE - 1) / 2
+function gridToWorld(x: number, y: number, z: number, dimensions: CubeDimensions = { x: 3, y: 3, z: 3 }) {
+  const halfX = (dimensions.x - 1) / 2
+  const halfY = (dimensions.y - 1) / 2
+  const halfZ = (dimensions.z - 1) / 2
   return {
-    x: (x - half) * CELL_SIZE,
-    y: (y - half) * CELL_SIZE,
-    z: (z - half) * CELL_SIZE,
+    x: (x - halfX) * CELL_SIZE,
+    y: (y - halfY) * CELL_SIZE,
+    z: (z - halfZ) * CELL_SIZE,
   }
 }
 
-function gridToWorldVector(x: number, y: number, z: number): THREE.Vector3 {
-  const point = gridToWorld(x, y, z)
+function gridToWorldVector(x: number, y: number, z: number, dimensions: CubeDimensions): THREE.Vector3 {
+  const point = gridToWorld(x, y, z, dimensions)
   return new THREE.Vector3(point.x, point.y, point.z)
 }
 
@@ -806,6 +821,7 @@ function createStandaloneFaceMesh(
   direction: Direction,
   letter: string,
   selected: boolean,
+  dimensions: CubeDimensions,
 ): THREE.Mesh {
   const geometry = new THREE.PlaneGeometry(FACE_SIZE, FACE_SIZE)
   const material = new THREE.MeshBasicMaterial({
@@ -815,7 +831,7 @@ function createStandaloneFaceMesh(
   })
 
   const mesh = new THREE.Mesh(geometry, material)
-  const center = gridToWorld(x, y, z)
+  const center = gridToWorld(x, y, z, dimensions)
   const offset = directionOffset(direction)
 
   mesh.position.set(
