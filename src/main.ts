@@ -130,7 +130,7 @@ const SHARE_IMAGE_HEIGHT = 1350
 const SHARE_SITE_LABEL = 'wordcube.cc'
 const INTERACTION_HINT_DISMISS_DELAY_MS = 500
 const INTERACTION_HINT_FADE_MS = 900
-const DEFAULT_GAME_MODE: GameMode = 'mini'
+const DEFAULT_GAME_MODE: GameMode = 'wildcard'
 const WILDCARD_CHARACTER = '★'
 const SEARCH_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
 const GAME_MODE_CONFIG: Record<
@@ -712,7 +712,7 @@ function renderStageControls(): string {
 
   return `
     <div class="stage-controls">
-      ${renderWordReadout()}
+      ${renderSelectionPreview()}
 
       <div class="controls-row">
         <button class="action" data-action="submit" ${submitDisabled() ? 'disabled' : ''}>
@@ -947,9 +947,9 @@ async function loadCubeLetterFont() {
 }
 
 function updateSelectionUi() {
-  const wordReadout = appRoot.querySelector<HTMLElement>('.word-readout')
-  if (wordReadout) {
-    wordReadout.outerHTML = renderWordReadout()
+  const selectionPreview = appRoot.querySelector<HTMLElement>('.selection-preview-anchor, .word-readout')
+  if (selectionPreview) {
+    selectionPreview.outerHTML = renderSelectionPreview()
   }
 
   appRoot.querySelectorAll<HTMLButtonElement>('[data-action="submit"]').forEach((button) => {
@@ -961,8 +961,24 @@ function updateSelectionUi() {
   })
 }
 
-function renderWordReadout(): string {
-  const { displayChars, displayWord, length, validWord } = currentWordState()
+function renderSelectionPreview(): string {
+  const currentWord = currentWordState()
+  const showWordStats = currentWord.validWord && Boolean(currentWord.submittedWord)
+
+  if (!showWordStats || !currentWord.submittedWord) {
+    return renderWordReadout(currentWord)
+  }
+
+  return `
+    <div class="selection-preview-anchor">
+      ${renderWordReadout(currentWord)}
+      ${renderWordPreviewStats(currentWord.submittedWord)}
+    </div>
+  `
+}
+
+function renderWordReadout(currentWord: CurrentWordState = currentWordState()): string {
+  const { displayChars, displayWord, length, validWord } = currentWord
   const classes = ['word-readout']
 
   if (length === 0) {
@@ -981,6 +997,19 @@ function renderWordReadout(): string {
     <div class="${classes.join(' ')}">
       <span class="word-readout-text">${displayWord ? renderWordReadoutText(displayChars) : '4+ letters'}</span>
     </div>
+  `
+}
+
+function renderWordPreviewStats(submittedWord: string): string {
+  const previewScore = state.hintedWords.has(submittedWord) ? null : scoreWord(submittedWord)
+  const previewScoreLabel = previewScore === null ? 'Hint' : `+${previewScore}`
+
+  return `
+    <aside class="word-preview-stats" aria-label="Selected word summary">
+      <span class="word-preview-stats-value">${submittedWord.length}</span>
+      <span class="word-preview-stats-separator" aria-hidden="true">/</span>
+      <span class="word-preview-stats-value${previewScore === null ? ' is-hint' : ''}">${previewScoreLabel}</span>
+    </aside>
   `
 }
 
