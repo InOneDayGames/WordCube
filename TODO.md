@@ -2,6 +2,8 @@
 
 ## Next
 
+- High priority: do a focused tablet layout cleanup pass. The current tablet landscape and tablet portrait compositions are still messy in debug and need proper header/stage/control spacing and alignment work.
+- High priority: design and implement a Freaky Friday mode.
 
 
 

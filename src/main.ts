@@ -23,6 +23,7 @@ import { APP_VERSION } from './version'
 type GameOverReason = 'cleared' | 'no_more_words'
 type InteractionHintState = 'visible' | 'dismissing' | 'hidden'
 type GameMode = 'classic' | 'wildcard' | 'mini'
+type DailyModeDebugOverride = 'auto' | 'classic' | 'monday_mini' | 'wildcard_wednesday'
 type GameIdentity = {
   label: string
   seed: number
@@ -34,6 +35,11 @@ type DailyPuzzleManifestEntry = {
 }
 type DailyPuzzleManifest = {
   puzzles: Map<string, DailyPuzzleManifestEntry>
+}
+type DailyModePresentation = {
+  mode: GameMode
+  bannerLabel: string | null
+  debugLabel: string
 }
 type ManifestPuzzleDebugEntry = {
   dateKey: string
@@ -108,6 +114,7 @@ type AppState = {
   shareStatus: string | null
   starterDebug: StarterDebugState | null
   manifestDebugIndex: number
+  dailyModeDebugOverride: DailyModeDebugOverride
 }
 
 const CUBE_CLEAR_BONUS = 5
@@ -119,7 +126,10 @@ const DAILY_PUZZLE_TIME_ZONE = 'Europe/London'
 const DAILY_PUZZLE_VERSION = 1
 const SAVED_DAILY_PROGRESS_VERSION = 8
 const DAILY_PUZZLE_REFRESH_INTERVAL_HOURS = 24
+const APP_SEARCH_PARAMS = new URLSearchParams(window.location.search)
 const DEBUG_TOOLS_ENABLED = import.meta.env.DEV
+const DAILY_MODE_DEBUG_ENABLED =
+  DEBUG_TOOLS_ENABLED || APP_SEARCH_PARAMS.has('daily-mode-debug') || APP_SEARCH_PARAMS.has('daily-mode')
 const GAME_OVER_OVERLAY_DELAY_BY_REASON: Record<GameOverReason, number> = {
   cleared: 1000,
   no_more_words: 1500,
@@ -130,9 +140,11 @@ const SHARE_IMAGE_HEIGHT = 1350
 const SHARE_SITE_LABEL = 'wordcube.cc'
 const INTERACTION_HINT_DISMISS_DELAY_MS = 500
 const INTERACTION_HINT_FADE_MS = 900
+const DEFAULT_STATUS_MESSAGE = 'Select adjacent visible faces that share an edge.'
 const DEFAULT_GAME_MODE: GameMode = 'wildcard'
 const WILDCARD_CHARACTER = '★'
 const SEARCH_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
+const DAILY_MODE_DEBUG_SEQUENCE: DailyModeDebugOverride[] = ['auto', 'monday_mini', 'wildcard_wednesday', 'classic']
 const GAME_MODE_CONFIG: Record<
   GameMode,
   { wildcardFaceCount: number; cubeDimensions: CubeDimensions }
@@ -163,6 +175,69 @@ function createDailyGameIdentity(date: Date): GameIdentity {
     seed: hashStringToSeed(`word-cube:daily:v${DAILY_PUZZLE_VERSION}:${dateKey}`),
     dateKey,
   }
+}
+
+function getDailyModePresentation(
+  dateKey: string | null,
+  debugOverride: DailyModeDebugOverride = 'auto',
+): DailyModePresentation {
+  if (debugOverride === 'classic') {
+    return { mode: 'classic', bannerLabel: null, debugLabel: 'Classic' }
+  }
+
+  if (debugOverride === 'monday_mini') {
+    return { mode: 'mini', bannerLabel: 'Monday Mini', debugLabel: 'Monday Mini' }
+  }
+
+  if (debugOverride === 'wildcard_wednesday') {
+    return { mode: 'wildcard', bannerLabel: 'Wildcard Wednesday', debugLabel: 'Wildcard Wednesday' }
+  }
+
+  if (dateKey === null) {
+    return { mode: DEFAULT_GAME_MODE, bannerLabel: null, debugLabel: 'Auto' }
+  }
+
+  const weekday = getDailyDateWeekday(dateKey)
+
+  if (weekday === 1) {
+    return { mode: 'mini', bannerLabel: 'Monday Mini', debugLabel: 'Auto (Monday Mini)' }
+  }
+
+  if (weekday === 3) {
+    return { mode: 'wildcard', bannerLabel: 'Wildcard Wednesday', debugLabel: 'Auto (Wildcard Wednesday)' }
+  }
+
+  return { mode: 'classic', bannerLabel: null, debugLabel: 'Auto (Classic)' }
+}
+
+function getDailyDateWeekday(dateKey: string): number {
+  const [datePart] = dateKey.split('T')
+  const [year, month, day] = datePart.split('-').map(Number)
+  const weekdayDate = new Date(Date.UTC(year, (month ?? 1) - 1, day ?? 1, 12, 0, 0, 0))
+
+  return weekdayDate.getUTCDay()
+}
+
+function applyScheduledDailyMode() {
+  state.gameMode = getDailyModePresentation(state.gameDateKey, state.dailyModeDebugOverride).mode
+}
+
+function getInitialDailyModeDebugOverride(): DailyModeDebugOverride {
+  const preview = APP_SEARCH_PARAMS.get('daily-mode')
+
+  if (preview === 'classic') {
+    return 'classic'
+  }
+
+  if (preview === 'monday-mini') {
+    return 'monday_mini'
+  }
+
+  if (preview === 'wildcard-wednesday') {
+    return 'wildcard_wednesday'
+  }
+
+  return 'auto'
 }
 
 async function loadDailyPuzzleManifest(): Promise<DailyPuzzleManifest | null> {
@@ -258,6 +333,41 @@ function restoreDailyProgress() {
   state.interactionHintState = savedProgress.interactionHintState
   state.selectedFaces = []
   clearLegalMoveHints()
+}
+
+function reloadCurrentDailyGame(status = DEFAULT_STATUS_MESSAGE) {
+  const identity = getInitialGameIdentity()
+
+  clearPendingGameOverReveal()
+  resetInteractionHint()
+  state.gameSeed = identity.seed
+  state.gameLabel = identity.label
+  state.gameDateKey = identity.dateKey
+  applyScheduledDailyMode()
+  state.cube = createCubeForSeed(state.gameSeed, state.gameMode)
+  state.selectedFaces = []
+  state.wildcardFaceKeys = getWildcardFaceKeysForSeed(state.gameSeed, state.gameMode)
+  clearLegalMoveHints()
+  state.score = 0
+  state.foundWords = []
+  state.scoreEvents = []
+  state.gameOverReason = null
+  state.pendingGameOverReason = null
+  state.hintedWords = new Set()
+  state.hintUsedThisRun = false
+  state.historySheetOpen = false
+  state.resolvingTurn = false
+  state.legalMoveHintFaces = []
+  state.shareStatus = null
+  state.starterDebug = null
+  state.manifestDebugIndex = -1
+  applyCuratedDailyPuzzle(activeDailyPuzzleManifest)
+  restoreDailyProgress()
+  state.status = status
+  updateGameOverState()
+  saveDailyProgress()
+  renderShell()
+  renderCube()
 }
 
 function saveDailyProgress() {
@@ -565,8 +675,10 @@ if (!app) {
 
 const appRoot = app
 const initialGameIdentity = getInitialGameIdentity()
+const initialDailyModeDebugOverride = getInitialDailyModeDebugOverride()
+const initialDailyMode = getDailyModePresentation(initialGameIdentity.dateKey, initialDailyModeDebugOverride)
 const state: AppState = {
-  cube: createCubeForSeed(initialGameIdentity.seed, DEFAULT_GAME_MODE),
+  cube: createCubeForSeed(initialGameIdentity.seed, initialDailyMode.mode),
   selectedFaces: [],
   dictionary: null,
   popularDictionary: null,
@@ -586,8 +698,8 @@ const state: AppState = {
   historySheetOpen: false,
   resolvingTurn: false,
   legalMoveHintFaces: [],
-  wildcardFaceKeys: getWildcardFaceKeysForSeed(initialGameIdentity.seed, DEFAULT_GAME_MODE),
-  gameMode: DEFAULT_GAME_MODE,
+  wildcardFaceKeys: getWildcardFaceKeysForSeed(initialGameIdentity.seed, initialDailyMode.mode),
+  gameMode: initialDailyMode.mode,
   interactionHintState: 'visible',
   gameSeed: initialGameIdentity.seed,
   gameLabel: initialGameIdentity.label,
@@ -595,6 +707,7 @@ const state: AppState = {
   shareStatus: null,
   starterDebug: null,
   manifestDebugIndex: -1,
+  dailyModeDebugOverride: initialDailyModeDebugOverride,
 }
 
 let cubeView: CubeView | null = null
@@ -621,10 +734,11 @@ async function bootstrap() {
     state.popularDictionary = popularDictionary
     state.dictionaryPrefixes = buildPrefixes(state.dictionary)
     state.popularPrefixes = buildPrefixes(state.popularDictionary)
+    applyScheduledDailyMode()
     applyCuratedDailyPuzzle(dailyPuzzleManifest)
     restoreDailyProgress()
     state.loading = false
-    state.status = 'Select adjacent visible faces that share an edge.'
+    state.status = DEFAULT_STATUS_MESSAGE
     updateGameOverState()
     saveDailyProgress()
     renderShell()
@@ -642,6 +756,7 @@ function renderShell() {
   appRoot.innerHTML = `
     <main class="app-shell">
       <section class="panel header-panel">
+        ${renderDailyModeBanner()}
         <div class="header-topline">
           <div class="title-lockup">
             <h1>WORD CUBE</h1>
@@ -705,6 +820,20 @@ function renderShell() {
   syncDailyCountdownTimer()
 }
 
+function renderDailyModeBanner(): string {
+  if (state.gameDateKey === null) {
+    return ''
+  }
+
+  const bannerLabel = getDailyModePresentation(state.gameDateKey, state.dailyModeDebugOverride).bannerLabel
+
+  if (!bannerLabel) {
+    return ''
+  }
+
+  return `<span class="daily-mode-banner">${bannerLabel}</span>`
+}
+
 function renderStageControls(): string {
   if (state.gameOverReason) {
     return ''
@@ -751,25 +880,48 @@ function renderSidebarHintButton(): string {
 }
 
 function renderDebugHeaderActions(): string {
-  if (!DEBUG_TOOLS_ENABLED) {
+  if (!DEBUG_TOOLS_ENABLED && !DAILY_MODE_DEBUG_ENABLED) {
     return ''
   }
+
+  const dailyModePreview = getDailyModePresentation(state.gameDateKey, state.dailyModeDebugOverride)
 
   return `
     <div class="header-meta">
       <div class="debug-actions">
-        <button class="debug-link" data-action="rapid-solve" aria-label="Rapid solve" title="Rapid solve" ${controlsLocked() ? 'disabled' : ''}>
-          ${renderActionIcon('rapid')}
-        </button>
-        <button class="debug-link" data-action="random-cube" aria-label="Random test cube" title="Random test cube" ${debugCubeChangeLocked() ? 'disabled' : ''}>
-          ${renderActionIcon('random')}
-        </button>
-        <button class="debug-link" data-action="manifest-cube" aria-label="Load next manifest cube" title="Load next manifest cube" ${manifestDebugLocked() ? 'disabled' : ''}>
-          ${renderActionIcon('manifest')}
-        </button>
-        <button class="debug-link ${state.starterDebug ? 'is-active' : ''}" data-action="toggle-starter-debug" aria-label="Show starter words" title="Show starter words" ${starterDebugLocked() ? 'disabled' : ''}>
-          ${renderActionIcon('words')}
-        </button>
+        ${
+          DEBUG_TOOLS_ENABLED
+            ? `
+                <button class="debug-link" data-action="rapid-solve" aria-label="Rapid solve" title="Rapid solve" ${controlsLocked() ? 'disabled' : ''}>
+                  ${renderActionIcon('rapid')}
+                </button>
+                <button class="debug-link" data-action="random-cube" aria-label="Random test cube" title="Random test cube" ${debugCubeChangeLocked() ? 'disabled' : ''}>
+                  ${renderActionIcon('random')}
+                </button>
+                <button class="debug-link" data-action="manifest-cube" aria-label="Load next manifest cube" title="Load next manifest cube" ${manifestDebugLocked() ? 'disabled' : ''}>
+                  ${renderActionIcon('manifest')}
+                </button>
+              `
+            : ''
+        }
+        ${
+          DAILY_MODE_DEBUG_ENABLED
+            ? `
+                <button class="debug-link ${state.dailyModeDebugOverride !== 'auto' ? 'is-active' : ''}" data-action="cycle-daily-mode-preview" aria-label="Cycle daily mode preview" title="Cycle daily mode preview (${dailyModePreview.debugLabel})" ${debugCubeChangeLocked() ? 'disabled' : ''}>
+                  ${renderActionIcon('daily')}
+                </button>
+              `
+            : ''
+        }
+        ${
+          DEBUG_TOOLS_ENABLED
+            ? `
+                <button class="debug-link ${state.starterDebug ? 'is-active' : ''}" data-action="toggle-starter-debug" aria-label="Show starter words" title="Show starter words" ${starterDebugLocked() ? 'disabled' : ''}>
+                  ${renderActionIcon('words')}
+                </button>
+              `
+            : ''
+        }
       </div>
     </div>
   `
@@ -818,6 +970,10 @@ function bindUi() {
 
   bindButtons('[data-action="manifest-cube"]', () => {
     loadNextManifestDebugCube()
+  })
+
+  bindButtons('[data-action="cycle-daily-mode-preview"]', () => {
+    cycleDailyModePreview()
   })
 
   bindButtons('[data-action="toggle-starter-debug"]', () => {
@@ -1459,7 +1615,7 @@ function renderHistorySheet(): string {
   `
 }
 
-function renderActionIcon(kind: 'hint' | 'rapid' | 'random' | 'manifest' | 'words'): string {
+function renderActionIcon(kind: 'hint' | 'rapid' | 'random' | 'manifest' | 'words' | 'daily'): string {
   if (kind === 'hint') {
     return `
       <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -1483,6 +1639,16 @@ function renderActionIcon(kind: 'hint' | 'rapid' | 'random' | 'manifest' | 'word
       <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
         <path d="M5.2 3.8h9.6a1.7 1.7 0 0 1 1.7 1.7v9.3a1.7 1.7 0 0 1-1.7 1.7H5.2a1.7 1.7 0 0 1-1.7-1.7V5.5a1.7 1.7 0 0 1 1.7-1.7Z" stroke="currentColor" stroke-width="1.6"/>
         <path d="M6.2 2.8v2.4M13.8 2.8v2.4M3.8 7.4h12.4M7 10h.1M10 10h.1M13 10h.1M7 13h.1M10 13h.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+    `
+  }
+
+  if (kind === 'daily') {
+    return `
+      <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <path d="M5.2 4h9.6a1.7 1.7 0 0 1 1.7 1.7v8.9a1.7 1.7 0 0 1-1.7 1.7H5.2a1.7 1.7 0 0 1-1.7-1.7V5.7A1.7 1.7 0 0 1 5.2 4Z" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M6.3 2.9v2.3M13.7 2.9v2.3M3.9 7.4h12.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        <path d="m9.9 9.1.78 1.58 1.74.26-1.26 1.24.3 1.73-1.56-.82-1.56.82.3-1.73-1.26-1.24 1.74-.26.78-1.58Z" fill="currentColor"/>
       </svg>
     `
   }
@@ -1529,6 +1695,25 @@ function debugCubeChangeLocked(): boolean {
 
 function manifestDebugLocked(): boolean {
   return debugCubeChangeLocked() || getManifestPuzzleDebugEntries().length === 0
+}
+
+function cycleDailyModePreview() {
+  if (!DAILY_MODE_DEBUG_ENABLED || debugCubeChangeLocked()) {
+    return
+  }
+
+  const currentIndex = DAILY_MODE_DEBUG_SEQUENCE.indexOf(state.dailyModeDebugOverride)
+  const nextIndex = (currentIndex + 1 + DAILY_MODE_DEBUG_SEQUENCE.length) % DAILY_MODE_DEBUG_SEQUENCE.length
+  const nextOverride = DAILY_MODE_DEBUG_SEQUENCE[nextIndex] ?? 'auto'
+
+  state.dailyModeDebugOverride = nextOverride
+
+  const status =
+    nextOverride === 'auto'
+      ? 'Daily mode preview reset to live schedule.'
+      : `Previewing ${getDailyModePresentation(getInitialGameIdentity().dateKey, nextOverride).debugLabel}.`
+
+  reloadCurrentDailyGame(status)
 }
 
 function loadNextManifestDebugCube() {

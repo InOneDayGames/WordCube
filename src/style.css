@@ -86,6 +86,8 @@ p {
 }
 
 .header-panel {
+  position: relative;
+  overflow: visible;
   padding: 18px 24px 20px;
   margin-bottom: 18px;
   background: rgba(255, 255, 255, 0.9);
@@ -135,6 +137,36 @@ p {
   font-weight: 600;
   color: var(--text-mid);
   letter-spacing: -0.02em;
+}
+
+.daily-mode-banner {
+  position: absolute;
+  top: 70px;
+  left: 160px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 2px solid rgba(49, 92, 214, 0.34);
+  border-radius: 15px 18px 14px 17px;
+  background:
+    linear-gradient(135deg, rgba(255, 248, 228, 0.97), rgba(252, 230, 179, 0.96));
+  box-shadow:
+    0 2px 0 rgba(44, 85, 190, 0.16),
+    0 8px 18px rgba(28, 48, 84, 0.08);
+  color: #2757d4;
+  font-size: 0.66rem;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.72);
+  transform: rotate(-8deg);
+  transform-origin: center;
+  pointer-events: none;
 }
 
 .build-footer {
@@ -1037,6 +1069,15 @@ body.mode-tablet-landscape .header-panel {
   margin-bottom: 14px;
 }
 
+body.mode-tablet-landscape .daily-mode-banner {
+  top: 55px;
+  left: 100px;
+  min-height: 28px;
+  padding: 0 11px;
+  font-size: 0.54rem;
+  letter-spacing: 0.13em;
+}
+
 body.mode-tablet-landscape .workspace {
   grid-template-columns: minmax(0, 1fr) 300px;
   gap: 18px;
@@ -1330,6 +1371,15 @@ body.mode-tablet-landscape .interaction-hint {
   .word-preview-stats-value.is-hint {
     font-size: 0.68rem;
     letter-spacing: 0.1em;
+  }
+
+  .daily-mode-banner {
+    top: 18px;
+    left: 154px;
+    min-height: 24px;
+    padding: 0 9px;
+    font-size: 0.48rem;
+    letter-spacing: 0.12em;
   }
 
   .controls-row {
@@ -1768,6 +1818,15 @@ body.mode-tablet-portrait .header-panel {
   margin-bottom: 14px;
 }
 
+body.mode-tablet-portrait .daily-mode-banner {
+  top: 22px;
+  left: 214px;
+  min-height: 26px;
+  padding: 0 10px;
+  font-size: 0.52rem;
+  letter-spacing: 0.13em;
+}
+
 body.mode-tablet-portrait .title-lockup h1 {
   font-size: clamp(2.3rem, 6.4vw, 3.35rem);
 }
@@ -1941,6 +2000,15 @@ body.mode-tablet-portrait .rapid-action {
   .header-panel {
     padding: 12px 14px;
     margin-bottom: 8px;
+  }
+
+  .daily-mode-banner {
+    top: 30px;
+    left: 165px;
+    min-height: 21px;
+    padding: 0 8px;
+    font-size: 0.42rem;
+    letter-spacing: 0.1em;
   }
 
   .header-topline {
