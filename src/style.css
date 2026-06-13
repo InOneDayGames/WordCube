@@ -432,7 +432,7 @@ p {
 
 .word-readout {
   position: relative;
-  width: min(100%, 332px);
+  width: min(100%, 412px);
   min-height: 58px;
   padding: 0 24px;
   border: 1px solid var(--panel-border-strong);
@@ -492,7 +492,7 @@ p {
 
 .selection-preview-anchor {
   position: relative;
-  width: 332px;
+  width: 412px;
   overflow: visible;
 }
 
@@ -540,9 +540,9 @@ p {
 
 .controls-row {
   display: grid;
-  grid-template-columns: minmax(0, 252px) 68px;
+  grid-template-columns: 1fr 68px;
   gap: 12px;
-  width: min(100%, 332px);
+  width: min(100%, 412px);
 }
 
 .action {
