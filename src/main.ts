@@ -478,6 +478,20 @@ function getDailyProgressStorageKey(): string | null {
   return `${DAILY_PROGRESS_STORAGE_PREFIX}:${state.gameDateKey}:${state.gameMode}:${seedToGameId(state.gameSeed)}`
 }
 
+function resetSavedDailyProgress() {
+  const storageKey = getDailyProgressStorageKey()
+
+  if (storageKey) {
+    try {
+      window.localStorage.removeItem(storageKey)
+    } catch {
+      // If storage removal fails, we still try to reload a fresh in-memory daily game.
+    }
+  }
+
+  reloadCurrentDailyGame('Daily progress reset.')
+}
+
 function getSavedInteractionHintState(): InteractionHintState {
   if (state.foundWords.length > 0 || state.interactionHintState === 'dismissing') {
     return 'hidden'
@@ -901,6 +915,9 @@ function renderDebugHeaderActions(): string {
                 <button class="debug-link" data-action="manifest-cube" aria-label="Load next manifest cube" title="Load next manifest cube" ${manifestDebugLocked() ? 'disabled' : ''}>
                   ${renderActionIcon('manifest')}
                 </button>
+                <button class="debug-link" data-action="reset-daily-progress" aria-label="Reset saved daily progress" title="Reset saved daily progress" ${state.loading || state.resolvingTurn || state.gameDateKey === null ? 'disabled' : ''}>
+                  ${renderActionIcon('reset')}
+                </button>
               `
             : ''
         }
@@ -958,6 +975,10 @@ function bindUi() {
 
   bindButtons('[data-action="submit"]', () => {
     submitSelection()
+  })
+
+  bindButtons('[data-action="reset-daily-progress"]', () => {
+    resetSavedDailyProgress()
   })
 
   bindButtons('[data-action="rapid-solve"]', () => {
@@ -1615,7 +1636,7 @@ function renderHistorySheet(): string {
   `
 }
 
-function renderActionIcon(kind: 'hint' | 'rapid' | 'random' | 'manifest' | 'words' | 'daily'): string {
+function renderActionIcon(kind: 'hint' | 'rapid' | 'random' | 'manifest' | 'words' | 'daily' | 'reset'): string {
   if (kind === 'hint') {
     return `
       <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -1658,6 +1679,15 @@ function renderActionIcon(kind: 'hint' | 'rapid' | 'random' | 'manifest' | 'word
       <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
         <path d="M4.4 5.1h11.2M4.4 10h11.2M4.4 14.9h7.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
         <path d="M5.4 3.2 3.7 16.8M10.2 3.2 8.5 16.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity=".72"/>
+      </svg>
+    `
+  }
+
+  if (kind === 'reset') {
+    return `
+      <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <path d="M15.9 7.2A6.2 6.2 0 1 0 16.2 10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+        <path d="M12.7 3.8h3.7v3.7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
     `
   }
