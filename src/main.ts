@@ -18,12 +18,13 @@ import {
 import { CUBE_LETTER_FONT_FAMILY, CubeView, renderCubeShareCanvas } from './cubeView'
 import { createWordData, enumerateWordOpportunities } from './cubeOpportunities'
 import { loadDictionary, loadPopularDictionary } from './dictionary'
+import { applyFreakyFridayStamp, scoreFreakyFridayLetterBonuses } from './freakyFriday'
 import { APP_VERSION } from './version'
 
 type GameOverReason = 'cleared' | 'no_more_words'
 type InteractionHintState = 'visible' | 'dismissing' | 'hidden'
-type GameMode = 'classic' | 'wildcard' | 'mini'
-type DailyModeDebugOverride = 'auto' | 'classic' | 'monday_mini' | 'wildcard_wednesday'
+type GameMode = 'classic' | 'wildcard' | 'mini' | 'freaky'
+type DailyModeDebugOverride = 'auto' | 'classic' | 'monday_mini' | 'wildcard_wednesday' | 'freaky_friday'
 type GameIdentity = {
   label: string
   seed: number
@@ -144,7 +145,13 @@ const DEFAULT_STATUS_MESSAGE = 'Select adjacent visible faces that share an edge
 const DEFAULT_GAME_MODE: GameMode = 'wildcard'
 const WILDCARD_CHARACTER = '★'
 const SEARCH_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
-const DAILY_MODE_DEBUG_SEQUENCE: DailyModeDebugOverride[] = ['auto', 'monday_mini', 'wildcard_wednesday', 'classic']
+const DAILY_MODE_DEBUG_SEQUENCE: DailyModeDebugOverride[] = [
+  'auto',
+  'monday_mini',
+  'wildcard_wednesday',
+  'freaky_friday',
+  'classic',
+]
 const GAME_MODE_CONFIG: Record<
   GameMode,
   { wildcardFaceCount: number; cubeDimensions: CubeDimensions }
@@ -152,6 +159,7 @@ const GAME_MODE_CONFIG: Record<
   classic: { wildcardFaceCount: 0, cubeDimensions: DEFAULT_CUBE_DIMENSIONS },
   wildcard: { wildcardFaceCount: 2, cubeDimensions: DEFAULT_CUBE_DIMENSIONS },
   mini: { wildcardFaceCount: 0, cubeDimensions: { x: 2, y: 2, z: 2 } },
+  freaky: { wildcardFaceCount: 0, cubeDimensions: DEFAULT_CUBE_DIMENSIONS },
 }
 
 function getInitialGameIdentity(): GameIdentity {
@@ -161,10 +169,12 @@ function getInitialGameIdentity(): GameIdentity {
 
 function createCubeForSeed(seed: number, mode: GameMode): CubeState {
   const modeConfig = GAME_MODE_CONFIG[mode] ?? GAME_MODE_CONFIG.classic
-  return createCubeState({
+  const cube = createCubeState({
     dimensions: modeConfig.cubeDimensions,
     random: createSeededRandom(seed),
   })
+
+  return mode === 'freaky' ? applyFreakyFridayStamp(cube, seed) : cube
 }
 
 function createDailyGameIdentity(date: Date): GameIdentity {
@@ -193,6 +203,10 @@ function getDailyModePresentation(
     return { mode: 'wildcard', bannerLabel: 'Wildcard Wednesday', debugLabel: 'Wildcard Wednesday' }
   }
 
+  if (debugOverride === 'freaky_friday') {
+    return { mode: 'freaky', bannerLabel: 'Freaky Friday', debugLabel: 'Freaky Friday' }
+  }
+
   if (dateKey === null) {
     return { mode: DEFAULT_GAME_MODE, bannerLabel: null, debugLabel: 'Auto' }
   }
@@ -205,6 +219,10 @@ function getDailyModePresentation(
 
   if (weekday === 3) {
     return { mode: 'wildcard', bannerLabel: 'Wildcard Wednesday', debugLabel: 'Auto (Wildcard Wednesday)' }
+  }
+
+  if (weekday === 5) {
+    return { mode: 'freaky', bannerLabel: 'Freaky Friday', debugLabel: 'Auto (Freaky Friday)' }
   }
 
   return { mode: 'classic', bannerLabel: null, debugLabel: 'Auto (Classic)' }
@@ -235,6 +253,10 @@ function getInitialDailyModeDebugOverride(): DailyModeDebugOverride {
 
   if (preview === 'wildcard-wednesday') {
     return 'wildcard_wednesday'
+  }
+
+  if (preview === 'freaky-friday') {
+    return 'freaky_friday'
   }
 
   return 'auto'
@@ -558,7 +580,7 @@ function isInteractionHintState(value: unknown): value is InteractionHintState {
 }
 
 function isGameMode(value: unknown): value is GameMode {
-  return value === 'classic' || value === 'wildcard' || value === 'mini'
+  return value === 'classic' || value === 'wildcard' || value === 'mini' || value === 'freaky'
 }
 
 function parseDailyPuzzleManifest(value: unknown): DailyPuzzleManifest | null {
@@ -1107,6 +1129,7 @@ function renderCube() {
     state.pitchRadians,
     state.legalMoveHintFaces,
     state.wildcardFaceKeys,
+    isFreakyFridayMode(),
   )
 }
 
@@ -1514,10 +1537,22 @@ function scoreWord(word: string): number {
   const listed = table.get(word.length)
 
   if (listed !== undefined) {
-    return listed
+    return listed + scoreSpecialLetterBonuses(word)
   }
 
-  return Math.max(1, 14 + (word.length - 10) * 3)
+  return Math.max(1, 14 + (word.length - 10) * 3) + scoreSpecialLetterBonuses(word)
+}
+
+function scoreSpecialLetterBonuses(word: string): number {
+  if (!isFreakyFridayMode()) {
+    return 0
+  }
+
+  return scoreFreakyFridayLetterBonuses(word)
+}
+
+function isFreakyFridayMode(): boolean {
+  return state.gameMode === 'freaky'
 }
 
 function renderFoundWords(): string {
@@ -2289,6 +2324,7 @@ function drawShareCubeRender(context: CanvasRenderingContext2D, cube: CubeState)
     cameraRadius: 7.2,
     selectedFaceKeys: getShareAccentFaceKeys(cube),
     wildcardFaceKeys: getWildcardFaceKeysForSeed(state.gameSeed, state.gameMode),
+    showFreakyFridayBonuses: isFreakyFridayMode(),
   })
 
   context.save()

@@ -8,6 +8,7 @@ import {
   type CubeState,
   type Direction,
 } from './cube'
+import { getFreakyFridayLetterBonus } from './freakyFriday'
 
 const CELL_SIZE = 1
 const BLOCK_BODY_SIZE = 0.995
@@ -48,6 +49,7 @@ export class CubeView {
   private selectedFaceKeys = new Set<string>()
   private legalHintFaceKeys = new Set<string>()
   private wildcardFaceKeys = new Set<string>()
+  private showFreakyFridayBonuses = false
   private yawRadians = 0
   private pitchRadians = 0
   private dragYawOffset = 0
@@ -122,16 +124,21 @@ export class CubeView {
     pitchRadians: number,
     legalHintFaceKeys: string[] = [],
     wildcardFaceKeys: string[] = [],
+    showFreakyFridayBonuses = false,
   ) {
     this.yawRadians = yawRadians
     this.pitchRadians = pitchRadians
     this.applyYawRotation()
     this.wildcardFaceKeys = new Set(wildcardFaceKeys)
+    const freakyBonusesChanged = this.showFreakyFridayBonuses !== showFreakyFridayBonuses
+    this.showFreakyFridayBonuses = showFreakyFridayBonuses
     if (this.currentCube !== cube) {
       this.rebuildFaces(cube)
       this.currentCube = cube
       this.selectedFaceKeys = new Set()
       this.legalHintFaceKeys = new Set()
+    } else if (freakyBonusesChanged) {
+      this.refreshLetterTextures()
     }
     this.updateFaceTextureStates(new Set(selectedFaceKeys), new Set(legalHintFaceKeys))
     this.render()
@@ -159,6 +166,7 @@ export class CubeView {
       material.map = this.getLetterTexture(
         mesh.userData.displayLetter as string,
         mesh.userData.direction as Direction,
+        mesh.userData.letterBonus as 0 | 3 | 5,
         getFaceTextureState(Boolean(mesh.userData.selected), Boolean(mesh.userData.legalHint)),
       )
       material.needsUpdate = true
@@ -210,6 +218,7 @@ export class CubeView {
           block.z,
           direction,
           getFaceDisplayLetter(block.letters[direction], this.wildcardFaceKeys.has(faceKey)),
+          this.getDisplayedLetterBonus(block.letters[direction], this.wildcardFaceKeys.has(faceKey)),
           selectedFaceKeys.has(faceKey),
           currentCube.dimensions,
         )
@@ -428,12 +437,14 @@ export class CubeView {
         face.z,
         face.direction,
         getFaceDisplayLetter(face.letter, this.wildcardFaceKeys.has(faceKey)),
+        this.getDisplayedLetterBonus(face.letter, this.wildcardFaceKeys.has(faceKey)),
         false,
         cube.dimensions,
       )
       mesh.userData.faceKey = faceKey
       mesh.userData.blockId = face.blockId
       mesh.userData.displayLetter = getFaceDisplayLetter(face.letter, this.wildcardFaceKeys.has(faceKey))
+      mesh.userData.letterBonus = this.getDisplayedLetterBonus(face.letter, this.wildcardFaceKeys.has(faceKey))
       mesh.userData.direction = face.direction
       mesh.userData.selected = false
       mesh.userData.legalHint = false
@@ -483,6 +494,7 @@ export class CubeView {
       material.map = this.getLetterTexture(
         mesh.userData.displayLetter as string,
         mesh.userData.direction as Direction,
+        mesh.userData.letterBonus as 0 | 3 | 5,
         getFaceTextureState(nextSelected, nextLegalHint),
       )
       material.needsUpdate = true
@@ -500,12 +512,13 @@ export class CubeView {
     z: number,
     direction: Direction,
     letter: string,
+    letterBonus: 0 | 3 | 5,
     selected: boolean,
     dimensions: CubeDimensions,
   ): THREE.Mesh {
     const geometry = new THREE.PlaneGeometry(FACE_SIZE, FACE_SIZE)
     const material = new THREE.MeshBasicMaterial({
-      map: this.getLetterTexture(letter, direction, selected ? 'selected' : 'normal'),
+      map: this.getLetterTexture(letter, direction, letterBonus, selected ? 'selected' : 'normal'),
       transparent: false,
       side: THREE.FrontSide,
     })
@@ -543,19 +556,28 @@ export class CubeView {
     return mesh
   }
 
+  private getDisplayedLetterBonus(letter: string, wildcard: boolean): 0 | 3 | 5 {
+    if (wildcard || !this.showFreakyFridayBonuses) {
+      return 0
+    }
+
+    return getFreakyFridayLetterBonus(letter)
+  }
+
   private getLetterTexture(
     letter: string,
     direction: Direction,
+    letterBonus: 0 | 3 | 5,
     textureState: FaceTextureState,
   ): THREE.CanvasTexture {
-    const cacheKey = `${letter}:${direction}:${textureState}`
+    const cacheKey = `${letter}:${direction}:${letterBonus}:${textureState}`
     const cachedTexture = this.textureCache.get(cacheKey)
 
     if (cachedTexture) {
       return cachedTexture
     }
 
-    const texture = createLetterTexture(letter, direction, textureState)
+    const texture = createLetterTexture(letter, direction, letterBonus, textureState)
     this.textureCache.set(cacheKey, texture)
     return texture
   }
@@ -695,6 +717,7 @@ export type CubeShareRenderOptions = {
   selectedFaceKeys?: string[]
   wildcardFaceKeys?: string[]
   cameraRadius?: number
+  showFreakyFridayBonuses?: boolean
 }
 
 export function renderCubeShareCanvas(cube: CubeState, options: CubeShareRenderOptions): HTMLCanvasElement {
@@ -722,6 +745,7 @@ export function renderCubeShareCanvas(cube: CubeState, options: CubeShareRenderO
 
   const selectedFaceKeys = new Set(options.selectedFaceKeys ?? [])
   const wildcardFaceKeys = new Set(options.wildcardFaceKeys ?? [])
+  const showFreakyFridayBonuses = options.showFreakyFridayBonuses ?? false
 
   for (const face of getExposedFaces(cube)) {
     const faceKey = createFaceKey(face.blockId, face.direction)
@@ -732,6 +756,7 @@ export function renderCubeShareCanvas(cube: CubeState, options: CubeShareRenderO
         face.z,
         face.direction,
         getFaceDisplayLetter(face.letter, wildcardFaceKeys.has(faceKey)),
+        wildcardFaceKeys.has(faceKey) || !showFreakyFridayBonuses ? 0 : getFreakyFridayLetterBonus(face.letter),
         selectedFaceKeys.has(faceKey),
         cube.dimensions,
       ),
@@ -820,12 +845,13 @@ function createStandaloneFaceMesh(
   z: number,
   direction: Direction,
   letter: string,
+  letterBonus: 0 | 3 | 5,
   selected: boolean,
   dimensions: CubeDimensions,
 ): THREE.Mesh {
   const geometry = new THREE.PlaneGeometry(FACE_SIZE, FACE_SIZE)
   const material = new THREE.MeshBasicMaterial({
-    map: createLetterTexture(letter, direction, selected ? 'selected' : 'normal'),
+    map: createLetterTexture(letter, direction, letterBonus, selected ? 'selected' : 'normal'),
     transparent: true,
     side: THREE.FrontSide,
   })
@@ -932,6 +958,7 @@ function createBlockEdgeMesh(): THREE.LineSegments {
 function createLetterTexture(
   letter: string,
   direction: Direction,
+  letterBonus: 0 | 3 | 5,
   textureState: FaceTextureState,
 ): THREE.CanvasTexture {
   const canvas = document.createElement('canvas')
@@ -980,6 +1007,14 @@ function createLetterTexture(
   context.textAlign = 'center'
   context.textBaseline = 'middle'
   context.fillText(letter, 64, wildcardGlyph ? 66 : 68)
+
+  if (letterBonus > 0) {
+    context.fillStyle = textureState === 'selected' ? '#8d5a00' : '#3059d4'
+    context.font = "900 22px Manrope, 'Segoe UI', sans-serif"
+    context.textAlign = 'right'
+    context.textBaseline = 'bottom'
+    context.fillText(String(letterBonus), 116, 114)
+  }
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
