@@ -870,6 +870,20 @@ function renderDailyModeBanner(): string {
   return `<span class="daily-mode-banner">${bannerLabel}</span>`
 }
 
+function getModeStickerLabel(mode: GameMode): string {
+  switch (mode) {
+    case 'mini':
+      return 'Monday Mini'
+    case 'wildcard':
+      return 'Wildcard Wednesday'
+    case 'freaky':
+      return 'Freaky Friday'
+    case 'classic':
+    default:
+      return 'Classic'
+  }
+}
+
 function renderStageControls(): string {
   if (state.gameOverReason) {
     return ''
@@ -2211,6 +2225,7 @@ async function createResultsShareImageBlob(): Promise<Blob> {
   context.restore()
 
   drawShareBackdrop(context)
+  drawShareModeSticker(context, getModeStickerLabel(state.gameMode))
   drawTrackedText(context, 'WORD CUBE', SHARE_IMAGE_WIDTH / 2, 180, 82, 5, '#ffffff', 'center')
   drawShareDate(context, state.gameLabel.toUpperCase(), SHARE_IMAGE_WIDTH / 2, 268)
   drawShareCubeRender(context, starterCube)
@@ -2313,6 +2328,40 @@ function drawShareDate(context: CanvasRenderingContext2D, text: string, x: numbe
   context.stroke()
 
   drawTrackedText(context, text, x, y, 32, 7, '#a9bddb', 'center')
+}
+
+function drawShareModeSticker(context: CanvasRenderingContext2D, label: string) {
+  const centerX = 822
+  const centerY = 268
+  const horizontalPadding = 20
+  const height = 38
+  const radius = 16
+  const rotationRadians = (-8 * Math.PI) / 180
+  const uppercaseLabel = label.toUpperCase()
+  const fontSize = 18
+  const tracking = 2.8
+
+  context.save()
+  context.font = `900 ${fontSize}px Manrope, 'Segoe UI', sans-serif`
+  const textWidth = context.measureText(uppercaseLabel).width + Math.max(0, uppercaseLabel.length - 1) * tracking
+  const width = Math.max(132, textWidth + horizontalPadding * 2)
+
+  context.translate(centerX, centerY)
+  context.rotate(rotationRadians)
+
+  context.shadowColor = 'rgba(28, 48, 84, 0.18)'
+  context.shadowBlur = 18
+  context.shadowOffsetY = 8
+  const stickerGradient = context.createLinearGradient(-width / 2, 0, width / 2, height)
+  stickerGradient.addColorStop(0, 'rgba(255, 248, 228, 0.98)')
+  stickerGradient.addColorStop(1, 'rgba(252, 230, 179, 0.97)')
+  fillRoundedRect(context, -width / 2, -height / 2, width, height, radius, stickerGradient)
+
+  context.shadowColor = 'transparent'
+  strokeRoundedRect(context, -width / 2, -height / 2, width, height, radius, 'rgba(49, 92, 214, 0.34)', 3)
+
+  drawTrackedText(context, uppercaseLabel, 0, 2, fontSize, tracking, '#2757d4', 'center')
+  context.restore()
 }
 
 function drawShareCubeRender(context: CanvasRenderingContext2D, cube: CubeState) {
