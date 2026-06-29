@@ -8,5 +8,5 @@
     "moduleResolution": "NodeNext",
     "allowImportingTsExtensions": false
   },
-  "include": ["src/cube.ts", "src/simulation.ts", "src/cubeOpportunities.ts"]
+  "include": ["src/cube.ts", "src/simulation.ts", "src/cubeOpportunities.ts", "src/freakyFriday.ts"]
 }

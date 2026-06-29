@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { countLetters, countVowels } from '../.tmp_sim/src/cube.js'
 import { createCubeForSeed, createWordData, enumerateWordOpportunities } from '../.tmp_sim/src/cubeOpportunities.js'
+import { applyFreakyFridayStamp, scoreFreakyFridayLetterBonuses } from '../.tmp_sim/src/freakyFriday.js'
 
 const DAILY_PUZZLE_TIME_ZONE = 'Europe/London'
 const DEFAULT_INTERVAL_HOURS = 24
@@ -58,13 +59,19 @@ function curateDateKey(dateKey, runOptions) {
 }
 
 function analyzeCandidate(dateKey, seed, candidateIndex) {
-  const cube = createCubeForSeed(seed)
+  const mode = getCurationModeForDateKey(dateKey)
+  const baseCube = createCubeForSeed(seed)
+  const cube = mode === 'freaky' ? applyFreakyFridayStamp(baseCube, seed) : baseCube
   const popularShortWords = uniqueWords(enumerateWordOpportunities(cube, popularWordData, 4, 5))
   const popularFiveWords = popularShortWords.filter((word) => word.length === 5)
   const legalSurfaceWords = uniqueWords(enumerateWordOpportunities(cube, legalWordData, 4, 9))
   const legalWordsByLength = countWordsByLength(legalSurfaceWords, 4, 9)
   const longSurfaceCount = sumLengths(legalWordsByLength, 6, 9)
   const longestSurfaceWord = chooseLongestWord(legalSurfaceWords)
+  const freakySurfaceScores =
+    mode === 'freaky'
+      ? summarizeFreakySurfaceScores(legalSurfaceWords, legalPopularWords)
+      : null
   const letterCounts = countLetters(cube)
   const vowelCount = countVowels(cube)
   const rareLetterCount = [...letterCounts.entries()]
@@ -78,9 +85,11 @@ function analyzeCandidate(dateKey, seed, candidateIndex) {
     longestSurfaceWord: longestSurfaceWord.word || null,
     longestSurfaceLength: longestSurfaceWord.length,
     legalWordsByLength,
+    mode,
     vowelCount,
     uniqueLetterCount,
     rareLetterCount,
+    freakySurfaceScores,
   }
   const rejectReasons = getRejectReasons(metrics, options)
 
@@ -140,6 +149,10 @@ function getRejectReasons(metrics, runOptions) {
 }
 
 function scoreCandidate(metrics) {
+  if (metrics.mode === 'freaky' && metrics.freakySurfaceScores) {
+    return scoreFreakyCandidate(metrics)
+  }
+
   const lengthCounts = metrics.legalWordsByLength
 
   return (
@@ -153,6 +166,22 @@ function scoreCandidate(metrics) {
     metrics.uniqueLetterCount * 0.6 -
     Math.abs(metrics.vowelCount - 60) * 0.35 -
     Math.max(0, metrics.rareLetterCount - 4) * 1.5
+  )
+}
+
+function scoreFreakyCandidate(metrics) {
+  const freaky = metrics.freakySurfaceScores
+
+  return (
+    freaky.bestScore * 8 +
+    freaky.topThreeTotal * 4 +
+    freaky.topTenTotal * 1.2 +
+    freaky.highScoringWordCount * 7 +
+    freaky.popularHighScoringWordCount * 9 +
+    freaky.bestPopularScore * 5 +
+    metrics.uniqueLetterCount * 0.35 -
+    Math.abs(metrics.vowelCount - 60) * 0.3 -
+    Math.max(0, metrics.rareLetterCount - 8) * 0.8
   )
 }
 
@@ -215,7 +244,8 @@ function formatCandidate(candidate) {
     `popular 4-5 ${candidate.metrics.popularStarterCount}, 5L ${candidate.metrics.popularFiveCount}, ` +
     `6-9 ${candidate.metrics.longSurfaceCount} [${byLength}], ` +
     `longest ${candidate.metrics.longestSurfaceWord ?? 'none'} (${candidate.metrics.longestSurfaceLength}), ` +
-    `vowels ${candidate.metrics.vowelCount}, unique ${candidate.metrics.uniqueLetterCount}, rare ${candidate.metrics.rareLetterCount}`
+    `vowels ${candidate.metrics.vowelCount}, unique ${candidate.metrics.uniqueLetterCount}, rare ${candidate.metrics.rareLetterCount}` +
+    formatFreakyMetrics(candidate.metrics)
   )
 }
 
@@ -224,6 +254,19 @@ function formatExamples(candidate) {
   const long = candidate.examples.longSurface.length > 0 ? candidate.examples.longSurface.join(', ') : 'none'
 
   return `5L ${five}; long ${long}`
+}
+
+function formatFreakyMetrics(metrics) {
+  if (metrics.mode !== 'freaky' || !metrics.freakySurfaceScores) {
+    return ''
+  }
+
+  return (
+    `, freaky best ${metrics.freakySurfaceScores.bestWord ?? 'none'} (${metrics.freakySurfaceScores.bestScore}), ` +
+    `top3 ${metrics.freakySurfaceScores.topThreeTotal}, ` +
+    `high ${metrics.freakySurfaceScores.highScoringWordCount}, ` +
+    `popular-high ${metrics.freakySurfaceScores.popularHighScoringWordCount}`
+  )
 }
 
 function printManifestLongWordPersistenceReport(manifest, runOptions) {
@@ -821,6 +864,68 @@ function formatDateKeyLabel(dateKey) {
   const dateLabel = `${Number(day)} ${monthLabels[monthIndex] ?? month} ${year.slice(-2)}`
 
   return slotHour === undefined ? dateLabel : `${dateLabel}, ${slotHour}:00`
+}
+
+function getCurationModeForDateKey(dateKey) {
+  const [datePart] = dateKey.split('T')
+  const [year, month, day] = datePart.split('-').map(Number)
+  const weekdayDate = new Date(Date.UTC(year, (month ?? 1) - 1, day ?? 1, 12, 0, 0, 0))
+  const weekday = weekdayDate.getUTCDay()
+
+  if (weekday === 5) {
+    return 'freaky'
+  }
+
+  return 'classic'
+}
+
+function summarizeFreakySurfaceScores(legalWords, legalPopularWords) {
+  const allWordScores = rankFreakyWords(legalWords)
+  const popularWordScores = rankFreakyWords(legalWords.filter((word) => legalPopularWords.includes(word)))
+  const topThree = allWordScores.slice(0, 3)
+  const topTen = allWordScores.slice(0, 10)
+
+  return {
+    bestWord: allWordScores[0]?.word ?? null,
+    bestScore: allWordScores[0]?.score ?? 0,
+    bestPopularScore: popularWordScores[0]?.score ?? 0,
+    topThreeTotal: topThree.reduce((sum, entry) => sum + entry.score, 0),
+    topTenTotal: topTen.reduce((sum, entry) => sum + entry.score, 0),
+    highScoringWordCount: allWordScores.filter((entry) => entry.score >= 18).length,
+    popularHighScoringWordCount: popularWordScores.filter((entry) => entry.score >= 18).length,
+  }
+}
+
+function rankFreakyWords(words) {
+  return words
+    .map((word) => ({
+      word,
+      score: scoreFreakyWord(word),
+    }))
+    .sort((a, b) => b.score - a.score || b.word.length - a.word.length || a.word.localeCompare(b.word))
+}
+
+function scoreFreakyWord(word) {
+  return baseWordScore(word) + scoreFreakyFridayLetterBonuses(word)
+}
+
+function baseWordScore(word) {
+  const table = new Map([
+    [4, 1],
+    [5, 2],
+    [6, 3],
+    [7, 5],
+    [8, 8],
+    [9, 11],
+    [10, 14],
+  ])
+  const listed = table.get(word.length)
+
+  if (listed !== undefined) {
+    return listed
+  }
+
+  return Math.max(1, 14 + (word.length - 10) * 3)
 }
 
 function parseArgs(args) {

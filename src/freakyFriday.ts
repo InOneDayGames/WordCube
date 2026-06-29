@@ -1,4 +1,4 @@
-import { createFaceKey, createSeededRandom, getExposedFaces, type CubeState, type Direction, type FaceRef } from './cube'
+import { createFaceKey, createSeededRandom, getExposedFaces, type CubeState, type Direction, type FaceRef } from './cube.js'
 
 const FIVE_POINT_LETTERS = ['J', 'Q', 'X', 'Z'] as const
 const THREE_POINT_LETTERS = ['B', 'F', 'K', 'V', 'W', 'Y'] as const
@@ -198,6 +198,8 @@ function getEdgeAdjacentDirections(direction: Direction): Direction[] {
     case 'nz':
       return ['px', 'nx', 'py', 'ny']
   }
+
+  return []
 }
 
 function pickAdjacentUDirection(
